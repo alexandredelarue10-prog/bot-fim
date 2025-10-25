@@ -37,6 +37,9 @@ env/
 # Environment variables
 .env
 
+# Configuration
+config.json
+
 # OS
 .DS_Store
 Thumbs.db

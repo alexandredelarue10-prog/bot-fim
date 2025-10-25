@@ -4,9 +4,12 @@
 A Discord bot built with Python and discord.py that responds to commands and events. The bot uses a command prefix system (!) and provides basic functionality for server interaction.
 
 ## Recent Changes
-- **2025-10-25**: Initial project setup with main.py
+- **2025-10-25**: Added comprehensive logging system with !setlogs command
+- **2025-10-25**: Added message sending commands (!say, !send, !embed)
+- **2025-10-25**: Added custom !help command with all bot commands
+- **2025-10-25**: Updated roles to match official F.I.M template (26 hierarchical roles)
 - **2025-10-25**: Cleaned up main.py - removed duplicate code, combined all features into single file
-- **2025-10-25**: Added setup_fim command for automated server structure creation
+- **2025-10-25**: Initial project setup with main.py and setup_fim command
 
 ## Project Architecture
 - **main.py**: Main bot file containing Discord client setup, event handlers, and commands
@@ -21,6 +24,11 @@ A Discord bot built with Python and discord.py that responds to commands and eve
 - **!say <message>** - Send a message as the bot in the current channel (requires Manage Messages permission)
 - **!send #channel <message>** - Send a message as the bot in a specific channel (requires Manage Messages permission)
 - **!embed <title> <description>** - Send a formatted embed message as the bot (requires Manage Messages permission)
+- **!setlogs #channel** - Configure the logging channel for server events (requires Administrator permission)
+  - Tracks member joins/leaves
+  - Logs deleted messages
+  - Records bans/unbans
+  - Saves configuration in config.json
 - **!setup_fim** - ⚠️ DO NOT USE - Administrator command for initial server setup (already completed)
   - Creates 26 hierarchical roles matching the official F.I.M template:
     - Direction F.I.M (Directeur, Chef d'état-major, etc.)
