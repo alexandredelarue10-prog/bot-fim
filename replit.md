@@ -16,11 +16,12 @@ A Discord bot built with Python and discord.py that responds to commands and eve
 
 ## Current Features
 - Bot connection with full intents and proper error handling
+- **!help** - Display all available commands with descriptions
 - **!ping** - Test command to verify bot functionality
 - **!say <message>** - Send a message as the bot in the current channel (requires Manage Messages permission)
 - **!send #channel <message>** - Send a message as the bot in a specific channel (requires Manage Messages permission)
 - **!embed <title> <description>** - Send a formatted embed message as the bot (requires Manage Messages permission)
-- **!setup_fim** - Administrator command to create complete F.I.M server structure
+- **!setup_fim** - ⚠️ DO NOT USE - Administrator command for initial server setup (already completed)
   - Creates 26 hierarchical roles matching the official F.I.M template:
     - Direction F.I.M (Directeur, Chef d'état-major, etc.)
     - Officiers supérieurs (Lieutenant général, Colonel, Lieutenant-colonel, Major)

@@ -3,7 +3,7 @@ from discord.ext import commands
 import os
 
 intents = discord.Intents.all()
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 @bot.event
 async def on_ready():
@@ -13,6 +13,48 @@ async def on_ready():
 async def ping(ctx):
     """Commande de test pour vérifier que le bot fonctionne"""
     await ctx.send("🏓 Pong ! Le bot F.I.M est opérationnel.")
+
+@bot.command()
+async def help(ctx):
+    """Affiche la liste de toutes les commandes disponibles"""
+    embed = discord.Embed(
+        title="📋 Commandes du Bot F.I.M",
+        description="Voici la liste de toutes les commandes disponibles :",
+        color=discord.Color.from_rgb(153, 0, 0)
+    )
+    
+    embed.add_field(
+        name="🏓 !ping",
+        value="Vérifie que le bot fonctionne correctement",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="📨 !say <message>",
+        value="Envoie un message avec le bot dans le canal actuel\n*Nécessite : Gérer les messages*",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="📤 !send #canal <message>",
+        value="Envoie un message avec le bot dans un canal spécifique\n*Nécessite : Gérer les messages*",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="📰 !embed <titre> <description>",
+        value="Envoie un message embed formaté avec le bot\n*Nécessite : Gérer les messages*",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="⚠️ !setup_fim",
+        value="**NE PAS UTILISER** - Configuration initiale du serveur (déjà effectuée)\n*Nécessite : Administrateur*",
+        inline=False
+    )
+    
+    embed.set_footer(text="Bot F.I.M - Préfixe : !")
+    await ctx.send(embed=embed)
 
 @bot.command()
 @commands.has_permissions(manage_messages=True)
