@@ -14,4 +14,6 @@ async def ping(ctx):
     await ctx.send("🏓 Pong ! Le bot F.I.M est opérationnel.")
 
 TOKEN = os.getenv("DISCORD_TOKEN")
+if TOKEN is None:
+    raise ValueError("DISCORD_TOKEN n'est pas défini dans les variables d'environnement")
 bot.run(TOKEN)
