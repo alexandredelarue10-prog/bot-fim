@@ -7,25 +7,12 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    print(f"✅ {bot.user} est connecté et prêt !")
+    print(f"✅ {bot.user} est connecté et prêt à organiser le serveur !")
 
 @bot.command()
 async def ping(ctx):
+    """Commande de test pour vérifier que le bot fonctionne"""
     await ctx.send("🏓 Pong ! Le bot F.I.M est opérationnel.")
-
-TOKEN = os.getenv("DISCORD_TOKEN")
-bot.run(TOKEN)
-
-import discord
-from discord.ext import commands
-import os
-
-intents = discord.Intents.all()
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-@bot.event
-async def on_ready():
-    print(f"✅ {bot.user} est connecté et prêt à organiser le serveur !")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -34,7 +21,6 @@ async def setup_fim(ctx):
     guild = ctx.guild
     await ctx.send("🛠️ Création de la structure du serveur F.I.M Alpha-1 en cours...")
 
-    # --- Catégories ---
     categories = {
         "📋 Informations": [
             "📜 règlements",
@@ -62,7 +48,6 @@ async def setup_fim(ctx):
         ]
     }
 
-    # --- Rôles ---
     roles = [
         ("Directeur F.I.M", discord.Color.red()),
         ("Conseiller", discord.Color.dark_red()),
@@ -76,13 +61,11 @@ async def setup_fim(ctx):
         ("Recrue", discord.Color.light_grey())
     ]
 
-    # Création des rôles
     for name, color in roles:
         if not discord.utils.get(guild.roles, name=name):
             await guild.create_role(name=name, color=color)
             print(f"Rôle créé : {name}")
 
-    # Création des catégories et salons
     for category_name, channels in categories.items():
         category = discord.utils.get(guild.categories, name=category_name)
         if not category:
@@ -96,10 +79,13 @@ async def setup_fim(ctx):
 
 @setup_fim.error
 async def setup_error(ctx, error):
+    """Gestion des erreurs pour la commande setup_fim"""
     if isinstance(error, commands.MissingPermissions):
         await ctx.send("🚫 Vous devez être administrateur pour exécuter cette commande.")
     else:
         await ctx.send(f"⚠️ Une erreur est survenue : {error}")
 
 TOKEN = os.getenv("DISCORD_TOKEN")
+if TOKEN is None:
+    raise ValueError("DISCORD_TOKEN n'est pas défini dans les variables d'environnement")
 bot.run(TOKEN)

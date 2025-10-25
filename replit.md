@@ -4,18 +4,23 @@
 A Discord bot built with Python and discord.py that responds to commands and events. The bot uses a command prefix system (!) and provides basic functionality for server interaction.
 
 ## Recent Changes
-- **2025-10-25**: Initial project setup with bot.py, basic ping command, and ready event handler
+- **2025-10-25**: Initial project setup with main.py
+- **2025-10-25**: Cleaned up main.py - removed duplicate code, combined all features into single file
+- **2025-10-25**: Added setup_fim command for automated server structure creation
 
 ## Project Architecture
-- **bot.py**: Main bot file containing Discord client setup, event handlers, and commands
+- **main.py**: Main bot file containing Discord client setup, event handlers, and commands
 - **Language**: Python 3.11
 - **Framework**: discord.py 2.6.4
 - **Command Prefix**: `!`
 
 ## Current Features
-- Bot connection with full intents
-- Ping command (!ping) to verify bot functionality
-- Ready event handler with connection confirmation
+- Bot connection with full intents and proper error handling
+- **!ping** - Test command to verify bot functionality
+- **!setup_fim** - Administrator command to create complete F.I.M Alpha-1 server structure
+  - Creates 10 hierarchical roles (Directeur F.I.M to Recrue)
+  - Creates 5 categories with organized channels
+  - Includes permission checks and error handling
 
 ## Environment Variables
 - **DISCORD_TOKEN**: Discord bot token (required) - Add this in the Secrets tab
