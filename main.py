@@ -15,6 +15,40 @@ async def ping(ctx):
     await ctx.send("🏓 Pong ! Le bot F.I.M est opérationnel.")
 
 @bot.command()
+@commands.has_permissions(manage_messages=True)
+async def say(ctx, *, message):
+    """Envoie un message avec le bot dans le canal actuel
+    Usage: !say <votre message>
+    """
+    await ctx.message.delete()
+    await ctx.send(message)
+
+@bot.command()
+@commands.has_permissions(manage_messages=True)
+async def send(ctx, channel: discord.TextChannel, *, message):
+    """Envoie un message avec le bot dans un canal spécifique
+    Usage: !send #canal <votre message>
+    """
+    await ctx.message.delete()
+    await channel.send(message)
+    await ctx.send(f"✅ Message envoyé dans {channel.mention}", delete_after=3)
+
+@bot.command()
+@commands.has_permissions(manage_messages=True)
+async def embed(ctx, title, *, description):
+    """Envoie un message embed avec le bot
+    Usage: !embed <titre> <description>
+    """
+    await ctx.message.delete()
+    embed = discord.Embed(
+        title=title,
+        description=description,
+        color=discord.Color.from_rgb(153, 0, 0)
+    )
+    embed.set_footer(text=f"Message envoyé par {ctx.author.name}")
+    await ctx.send(embed=embed)
+
+@bot.command()
 @commands.has_permissions(administrator=True)
 async def setup_fim(ctx):
     """Commande pour créer la structure complète du serveur F.I.M Alpha-1"""
