@@ -4,6 +4,7 @@
 A Discord bot built with Python and discord.py that responds to commands and events. The bot uses a command prefix system (!) and provides basic functionality for server interaction.
 
 ## Recent Changes
+- **2025-10-25**: Added whitelist system to control who can use bot commands
 - **2025-10-25**: Added comprehensive logging system with !setlogs command
 - **2025-10-25**: Added message sending commands (!say, !send, !embed)
 - **2025-10-25**: Added custom !help command with all bot commands
@@ -21,9 +22,14 @@ A Discord bot built with Python and discord.py that responds to commands and eve
 - Bot connection with full intents and proper error handling
 - **!help** - Display all available commands with descriptions
 - **!ping** - Test command to verify bot functionality
-- **!say <message>** - Send a message as the bot in the current channel (requires Manage Messages permission)
-- **!send #channel <message>** - Send a message as the bot in a specific channel (requires Manage Messages permission)
-- **!embed <title> <description>** - Send a formatted embed message as the bot (requires Manage Messages permission)
+- **Whitelist System** - Control who can use bot commands
+  - **!whitelist add @user** - Add a user to the whitelist (Admin only)
+  - **!whitelist remove @user** - Remove a user from the whitelist (Admin only)
+  - **!whitelist list** - View all whitelisted users (Admin only)
+  - Administrators always have access regardless of whitelist
+- **!say <message>** - Send a message as the bot in the current channel (requires Whitelist or Admin)
+- **!send #channel <message>** - Send a message as the bot in a specific channel (requires Whitelist or Admin)
+- **!embed <title> <description>** - Send a formatted embed message as the bot (requires Whitelist or Admin)
 - **!setlogs #channel** - Configure the logging channel for server events (requires Administrator permission)
   - Tracks member joins/leaves
   - Logs deleted messages
