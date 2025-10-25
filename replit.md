@@ -17,8 +17,14 @@ A Discord bot built with Python and discord.py that responds to commands and eve
 ## Current Features
 - Bot connection with full intents and proper error handling
 - **!ping** - Test command to verify bot functionality
-- **!setup_fim** - Administrator command to create complete F.I.M Alpha-1 server structure
-  - Creates 10 hierarchical roles (Directeur F.I.M to Recrue)
+- **!setup_fim** - Administrator command to create complete F.I.M server structure
+  - Creates 26 hierarchical roles matching the official F.I.M template:
+    - Direction F.I.M (Directeur, Chef d'état-major, etc.)
+    - Officiers supérieurs (Lieutenant général, Colonel, Lieutenant-colonel, Major)
+    - Commandements (Commandant, Capitaine Principal, Capitaine, Lieutenant, Sous-Lieutenant)
+    - Sous-officiers (Sergent-major, Sergent-chef, Sergent, Caporal-chef, Caporal)
+    - Agents opérationnels (Agent, Spécialiste)
+    - Recrues (Recrue)
   - Creates 5 categories with organized channels
   - Includes permission checks and error handling
 

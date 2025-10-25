@@ -49,16 +49,32 @@ async def setup_fim(ctx):
     }
 
     roles = [
-        ("Directeur F.I.M", discord.Color.red()),
-        ("Conseiller", discord.Color.dark_red()),
-        ("Colonel", discord.Color.gold()),
-        ("Commandant", discord.Color.orange()),
-        ("Capitaine", discord.Color.blue()),
-        ("Lieutenant", discord.Color.dark_blue()),
-        ("Sergent", discord.Color.green()),
-        ("Caporal", discord.Color.dark_green()),
-        ("Agent", discord.Color.greyple()),
-        ("Recrue", discord.Color.light_grey())
+        ("--Direction F.I.M--", discord.Color.from_rgb(153, 0, 0)),
+        ("Directeur de la FIM", discord.Color.from_rgb(153, 0, 0)),
+        ("Chef d'état-major", discord.Color.from_rgb(153, 0, 0)),
+        ("Commandant en chef des opérations", discord.Color.from_rgb(153, 0, 0)),
+        ("--Officiers supérieurs--", discord.Color.from_rgb(153, 0, 0)),
+        ("Lieutenant général", discord.Color.from_rgb(153, 0, 0)),
+        ("Colonel", discord.Color.from_rgb(153, 0, 0)),
+        ("Lieutenant-colonel", discord.Color.from_rgb(153, 0, 0)),
+        ("Major", discord.Color.from_rgb(153, 0, 0)),
+        ("--Commandements--", discord.Color.from_rgb(153, 0, 0)),
+        ("Commandant", discord.Color.from_rgb(153, 0, 0)),
+        ("Capitaine Principal", discord.Color.from_rgb(153, 0, 0)),
+        ("Capitaine", discord.Color.from_rgb(153, 0, 0)),
+        ("Lieutenant", discord.Color.from_rgb(153, 0, 0)),
+        ("Sous-Lieutenant", discord.Color.from_rgb(153, 0, 0)),
+        ("--Sous-officiers--", discord.Color.from_rgb(230, 126, 34)),
+        ("Sergent-major", discord.Color.from_rgb(230, 126, 34)),
+        ("Sergent-chef", discord.Color.from_rgb(230, 126, 34)),
+        ("Sergent", discord.Color.from_rgb(230, 126, 34)),
+        ("Caporal-chef", discord.Color.from_rgb(230, 126, 34)),
+        ("Caporal", discord.Color.from_rgb(230, 126, 34)),
+        ("--Agents opérationnels--", discord.Color.from_rgb(241, 196, 15)),
+        ("Agent", discord.Color.from_rgb(230, 126, 34)),
+        ("Spécialiste", discord.Color.from_rgb(230, 126, 34)),
+        ("--Recrues--", discord.Color.from_rgb(52, 152, 219)),
+        ("Recrue", discord.Color.from_rgb(52, 152, 219))
     ]
 
     for name, color in roles:
