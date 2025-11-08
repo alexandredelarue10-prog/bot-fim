@@ -8,6 +8,8 @@ import psycopg2
 # ✅ Token et DB depuis Railway
 TOKEN = os.getenv("DISCORD_TOKEN")
 
+OWNER_ID = 489113166429683713  # L'utilisateur qui a tous les accès
+
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
@@ -43,6 +45,9 @@ def get_whitelist(guild_id):
     return config.get(str(guild_id), {}).get("whitelist", [])
 
 def is_whitelisted(guild_id, user_id):
+    # ✅ L’owner a accès à tout
+    if user_id == OWNER_ID:
+        return True
     whitelist = get_whitelist(guild_id)
     return user_id in whitelist
 
@@ -71,6 +76,9 @@ def remove_from_whitelist(guild_id, user_id):
 
 def whitelist_check():
     async def predicate(ctx):
+        # ✅ L’owner contourne toutes les vérifications
+        if ctx.author.id == OWNER_ID:
+            return True
         if ctx.author.guild_permissions.administrator:
             return True
         if is_whitelisted(ctx.guild.id, ctx.author.id):
@@ -98,11 +106,11 @@ async def help(ctx):
     embed.add_field(name="📨 !say <message>", value="Envoie un message avec le bot dans le canal actuel\n*Nécessite : Whitelist ou Administrateur*", inline=False)
     embed.add_field(name="📤 !send #canal <message>", value="Envoie un message avec le bot dans un canal spécifique\n*Nécessite : Whitelist ou Administrateur*", inline=False)
     embed.add_field(name="📰 !embed <titre> <description>", value="Envoie un message embed formaté avec le bot\n*Nécessite : Whitelist ou Administrateur*", inline=False)
-    embed.add_field(name="📊 !setlogs #canal", value="Configure le canal où les logs du serveur seront envoyés\n*Nécessite : Administrateur*", inline=False)
-    embed.add_field(name="✅ !whitelist add @utilisateur", value="Ajoute un utilisateur à la whitelist du bot\n*Nécessite : Administrateur*", inline=False)
-    embed.add_field(name="❌ !whitelist remove @utilisateur", value="Retire un utilisateur de la whitelist du bot\n*Nécessite : Administrateur*", inline=False)
+    embed.add_field(name="🎭 !addrole @membre @rôle", value="Ajoute un rôle à un utilisateur\n*Nécessite : Whitelist ou Administrateur*", inline=False)
+    embed.add_field(name="📊 !setlogs #canal", value="Configure le canal de logs\n*Nécessite : Administrateur*", inline=False)
+    embed.add_field(name="✅ !whitelist add @utilisateur", value="Ajoute un utilisateur à la whitelist\n*Nécessite : Administrateur*", inline=False)
+    embed.add_field(name="❌ !whitelist remove @utilisateur", value="Retire un utilisateur de la whitelist\n*Nécessite : Administrateur*", inline=False)
     embed.add_field(name="📋 !whitelist list", value="Affiche la liste des utilisateurs whitelistés\n*Nécessite : Administrateur*", inline=False)
-    embed.add_field(name="⚠️ !setup_fim", value="**NE PAS UTILISER** - Configuration initiale du serveur (déjà effectuée)\n*Nécessite : Administrateur*", inline=False)
     embed.set_footer(text="Bot F.I.M - Préfixe : !")
     await ctx.send(embed=embed)
 
@@ -127,6 +135,17 @@ async def embed(ctx, title, *, description):
     em.set_footer(text=f"Message envoyé par {ctx.author.name}")
     await ctx.send(embed=em)
 
+# 🧩 Commande pour ajouter un rôle
+@bot.command()
+@whitelist_check()
+async def addrole(ctx, member: discord.Member, role: discord.Role):
+    try:
+        await member.add_roles(role)
+        await ctx.send(f"✅ Rôle {role.mention} ajouté à {member.mention}")
+    except Exception as e:
+        await ctx.send(f"❌ Impossible d'ajouter le rôle : {e}")
+
+# --- WHITELIST COMMANDS ---
 @bot.group(invoke_without_command=True)
 @commands.has_permissions(administrator=True)
 async def whitelist(ctx):
