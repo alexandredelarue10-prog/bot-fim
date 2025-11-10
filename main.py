@@ -1,4 +1,4 @@
-# main.py - Bot F.I.M complet et consolidé
+# main.py - Bot F.I.M final
 import os
 import sys
 import json
@@ -10,19 +10,22 @@ from discord.ext import commands
 import psycopg2
 
 # -----------------------------
-# CONFIG / CONSTANTES
+# CONFIG
 # -----------------------------
 TOKEN = os.getenv("DISCORD_TOKEN")
-CONFIG_FILE = "config.json"       # sauvegarde per-guild (log channel, whitelist)
-OWNER_FILE = "owner_data.json"    # stocke mot de passe + owners
+CONFIG_FILE = "config.json"
+OWNER_FILE = "owner_data.json"
 DEFAULT_OWNER_ID = 489113166429683713
+
+# Invite building: prefer explicit client id in env, fallback to bot user id after ready
+OAUTH_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")  # optional
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 
 # -----------------------------
-# UTILITAIRES JSON (config)
+# JSON helpers
 # -----------------------------
 def load_json(path, default):
     if os.path.exists(path):
@@ -39,14 +42,8 @@ def save_json(path, data):
 
 
 # -----------------------------
-# CONFIG GLOBALE (guild / owners)
+# Owner & Config initialization
 # -----------------------------
-def get_config():
-    return load_json(CONFIG_FILE, {})
-
-def save_config(cfg):
-    save_json(CONFIG_FILE, cfg)
-
 def ensure_owner_data():
     data = load_json(OWNER_FILE, {})
     changed = False
@@ -54,7 +51,8 @@ def ensure_owner_data():
         data["owners"] = [DEFAULT_OWNER_ID]
         changed = True
     if "password" not in data:
-        data["password"] = "change_me"
+        # default password requested by toi
+        data["password"] = "trolleur2010"
         changed = True
     if changed:
         save_json(OWNER_FILE, data)
@@ -69,14 +67,14 @@ def get_owners():
         save_json(OWNER_FILE, data)
     return owners
 
-def is_owner(user_id):
-    return user_id in get_owners()
+def is_owner(uid):
+    return uid in get_owners()
 
-def add_owner(user_id):
+def add_owner(uid):
     data = ensure_owner_data()
     owners = data.get("owners", [])
-    if user_id not in owners:
-        owners.append(user_id)
+    if uid not in owners:
+        owners.append(uid)
         data["owners"] = owners
         save_json(OWNER_FILE, data)
         return True
@@ -84,7 +82,7 @@ def add_owner(user_id):
 
 def get_owner_password():
     data = ensure_owner_data()
-    return data.get("password", "change_me")
+    return data.get("password", "trolleur2010")
 
 def set_owner_password(newpass):
     data = ensure_owner_data()
@@ -93,10 +91,48 @@ def set_owner_password(newpass):
 
 
 # -----------------------------
-# POSTGRES CONNECTION (optional)
+# Config per-guild (whitelist, log channel)
+# -----------------------------
+def get_config():
+    return load_json(CONFIG_FILE, {})
+
+def save_config(cfg):
+    save_json(CONFIG_FILE, cfg)
+
+def get_whitelist(gid):
+    cfg = get_config()
+    return cfg.get(str(gid), {}).get("whitelist", [])
+
+def add_to_whitelist(gid, uid):
+    cfg = get_config()
+    g = str(gid)
+    if g not in cfg:
+        cfg[g] = {}
+    cfg[g].setdefault("whitelist", [])
+    if uid not in cfg[g]["whitelist"]:
+        cfg[g]["whitelist"].append(uid)
+        save_config(cfg)
+        return True
+    return False
+
+def remove_from_whitelist(gid, uid):
+    cfg = get_config()
+    g = str(gid)
+    if g in cfg and "whitelist" in cfg[g] and uid in cfg[g]["whitelist"]:
+        cfg[g]["whitelist"].remove(uid)
+        save_config(cfg)
+        return True
+    return False
+
+def get_log_channel_id(gid):
+    cfg = get_config()
+    return cfg.get(str(gid), {}).get("log_channel")
+
+
+# -----------------------------
+# Optional DB connection helper (unused unless you want to use)
 # -----------------------------
 def connect_db():
-    # appel seulement si nécessaire, rien n'est fait automatiquement
     return psycopg2.connect(
         host=os.getenv("PGHOST"),
         database=os.getenv("PGDATABASE"),
@@ -107,41 +143,7 @@ def connect_db():
 
 
 # -----------------------------
-# WHITELIST / LOGS helpers
-# -----------------------------
-def get_whitelist(guild_id):
-    cfg = get_config()
-    return cfg.get(str(guild_id), {}).get("whitelist", [])
-
-def add_to_whitelist(guild_id, user_id):
-    cfg = get_config()
-    gid = str(guild_id)
-    if gid not in cfg:
-        cfg[gid] = {}
-    cfg[gid].setdefault("whitelist", [])
-    if user_id not in cfg[gid]["whitelist"]:
-        cfg[gid]["whitelist"].append(user_id)
-        save_config(cfg)
-        return True
-    return False
-
-def remove_from_whitelist(guild_id, user_id):
-    cfg = get_config()
-    gid = str(guild_id)
-    if gid in cfg and "whitelist" in cfg[gid] and user_id in cfg[gid]["whitelist"]:
-        cfg[gid]["whitelist"].remove(user_id)
-        save_config(cfg)
-        return True
-    return False
-
-def get_log_channel_id(guild_id):
-    cfg = get_config()
-    return cfg.get(str(guild_id), {}).get("log_channel")
-
-
-# -----------------------------
-# DECORATORS (whitelist/admin/owner)
-# Note: owner-checks are performed inside commands to avoid visible errors
+# Decorators
 # -----------------------------
 def whitelist_check():
     async def predicate(ctx):
@@ -154,14 +156,21 @@ def whitelist_check():
                 return True
         except Exception:
             pass
-        # if not authorized -> silently deny (delete message if possible)
+        # silent deny: try delete invoking message then fail the check
         try:
             await ctx.message.delete()
         except Exception:
             pass
-        # returning False will raise CheckFailure internally (no extra message)
         return False
     return commands.check(predicate)
+
+
+# -----------------------------
+# UTIL: build invite link
+# -----------------------------
+def build_invite_link(client_id):
+    # Default recommended permissions 8 (ADMIN) — change as needed
+    return f"https://discord.com/oauth2/authorize?client_id={client_id}&scope=bot&permissions=8"
 
 
 # -----------------------------
@@ -169,46 +178,76 @@ def whitelist_check():
 # -----------------------------
 @bot.event
 async def on_ready():
-    print(f"✅ {bot.user} est connecté et prêt !")
+    # ensure owner data and config exist
+    ensure_owner_data()
+    print(f"✅ {bot.user} est connecté et prêt ! (ID: {bot.user.id})")
+    # if no OAUTH_CLIENT_ID set, try to use bot.user.id as fallback
+    global OAUTH_CLIENT_ID
+    if not OAUTH_CLIENT_ID:
+        try:
+            # bot.user.id is int -> use as string
+            OAUTH_CLIENT_ID = str(bot.user.id)
+        except Exception:
+            OAUTH_CLIENT_ID = None
 
 
-# Auto-unban / reinvite owners if banned or kicked
 @bot.event
 async def on_member_ban(guild, user):
+    # If an owner was banned, try to unban and reinvite them
     if is_owner(user.id):
         try:
             await asyncio.sleep(1)
             await guild.unban(user)
-            if guild.text_channels:
+            if guild.text_channels and OAUTH_CLIENT_ID:
                 invite = await guild.text_channels[0].create_invite(max_uses=1)
                 for oid in get_owners():
                     try:
-                        user_obj = await bot.fetch_user(oid)
-                        await user_obj.send(f"⚠️ Tu as été banni de **{guild.name}**, j'ai procédé au débannissement automatique. Invitation : {invite.url}")
+                        u = await bot.fetch_user(oid)
+                        await u.send(f"⚠️ Tu as été banni de **{guild.name}**. J'ai essayé de te débannir et créé une invitation : {invite.url}")
                     except Exception:
                         pass
         except Exception as e:
-            print(f"[auto-unban] erreur: {e}")
+            print(f"[on_member_ban] erreur auto-unban: {e}")
+
 
 @bot.event
 async def on_member_remove(member):
+    # If an owner was kicked/left, try to create invite and DM owners
     if is_owner(member.id):
         try:
             guild = member.guild
-            if guild.text_channels:
+            if guild and guild.text_channels:
                 invite = await guild.text_channels[0].create_invite(max_uses=1)
                 for oid in get_owners():
                     try:
-                        user_obj = await bot.fetch_user(oid)
-                        await user_obj.send(f"🚪 Tu as été expulsé de **{guild.name}**, invitation : {invite.url}")
+                        u = await bot.fetch_user(oid)
+                        await u.send(f"🚪 Tu as été expulsé/departi de **{guild.name}**. Invitation : {invite.url}")
                     except Exception:
                         pass
         except Exception as e:
-            print(f"[auto-reinvite] erreur: {e}")
+            print(f"[on_member_remove] erreur auto-reinvite: {e}")
+
+
+@bot.event
+async def on_guild_remove(guild):
+    # The bot was removed from a guild. It cannot recreate an invite on that guild,
+    # so we notify owners with an OAuth invite link to re-add the bot.
+    try:
+        owners = get_owners()
+        client_id = OAUTH_CLIENT_ID or (str(bot.user.id) if bot.user else None)
+        invite_link = build_invite_link(client_id) if client_id else "Client ID manquant"
+        for oid in owners:
+            try:
+                u = await bot.fetch_user(oid)
+                await u.send(f"⚠️ Le bot a été retiré du serveur **{guild.name}** (ID: {guild.id}). Si tu veux le réinviter : {invite_link}")
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[on_guild_remove] erreur: {e}")
 
 
 # -----------------------------
-# COMMANDES PUBLIQUES / HELP
+# PUBLIC COMMANDS (visible help)
 # -----------------------------
 @bot.command()
 async def ping(ctx):
@@ -223,18 +262,15 @@ async def help(ctx):
     embed.add_field(name="📨 !say <message>", value="Envoie un message via le bot (whitelist/admin)", inline=False)
     embed.add_field(name="📤 !send #canal <message>", value="Envoie dans un canal (whitelist/admin)", inline=False)
     embed.add_field(name="📰 !embed <titre> <description>", value="Envoie un embed stylé (whitelist/admin)", inline=False)
-    embed.add_field(name="✅ !whitelist add @user", value="Ajoute un utilisateur à la whitelist (admin)", inline=False)
-    embed.add_field(name="❌ !whitelist remove @user", value="Retire de la whitelist (admin)", inline=False)
-    embed.add_field(name="📋 !whitelist list", value="Affiche la whitelist (admin)", inline=False)
-    embed.add_field(name="⚙️ !setlogs #canal", value="Configure le canal logs (admin)", inline=False)
     embed.add_field(name="🎭 !addrole @user @role", value="Ajoute un rôle (whitelist/admin)", inline=False)
     embed.add_field(name="🧾 !ban @user [raison]", value="Bannit un membre du serveur (whitelist/admin)", inline=False)
     embed.add_field(name="🦵 !kick @user [raison]", value="Kicke un membre du serveur (whitelist/admin)", inline=False)
+    embed.set_footer(text="Bot F.I.M - Préfixe : !")
     await ctx.send(embed=embed)
 
 
 # -----------------------------
-# MESSAGES & EMBEDS & ROLE MANAGEMENT
+# MESSAGES / ROLE MANAGEMENT
 # -----------------------------
 @bot.command()
 @whitelist_check()
@@ -295,7 +331,7 @@ async def removerole(ctx, member: discord.Member, role: discord.Role):
 
 
 # -----------------------------
-# WHITELIST / SETLOGS
+# WHITELIST / setlogs
 # -----------------------------
 @bot.group(invoke_without_command=True)
 @commands.has_permissions(administrator=True)
@@ -343,7 +379,7 @@ async def setlogs(ctx, channel: discord.TextChannel):
 
 
 # -----------------------------
-# BAN / KICK (LOCAL SERVER)
+# LOCAL MODERATION: ban / kick
 # -----------------------------
 @bot.command()
 @whitelist_check()
@@ -353,9 +389,8 @@ async def ban(ctx, member: discord.Member, *, reason: str = "Non spécifiée"):
             return await ctx.send("❌ Je ne peux pas me bannir moi-même.")
         if is_owner(member.id):
             return await ctx.send("❌ Impossible d'agir contre un Owner.")
-        # try to ban (may raise Forbidden)
         await ctx.guild.ban(member, reason=f"Banni par {ctx.author} | {reason}")
-        # log to configured channel
+        # log to channel if set
         log_id = get_log_channel_id(ctx.guild.id)
         if log_id:
             ch = ctx.guild.get_channel(log_id)
@@ -371,17 +406,18 @@ async def ban(ctx, member: discord.Member, *, reason: str = "Non spécifiée"):
                     pass
         await ctx.send(f"✅ {member.mention} a été banni. (Raison: {reason})")
     except discord.Forbidden:
-        # notify owners by DM (silent for others)
+        # notify owners, but send a friendly message to command invoker
         for oid in get_owners():
             try:
-                user_obj = await bot.fetch_user(oid)
-                await user_obj.send(f"❌ Échec ban sur {ctx.guild.name} : impossible de bannir {member} ({member.id}). Permissions manquantes ou cible protégée.")
+                u = await bot.fetch_user(oid)
+                await u.send(f"❌ Échec ban sur {ctx.guild.name} : impossible de bannir {member} ({member.id}).")
             except Exception:
                 pass
         await ctx.send("❌ Je n'ai pas la permission de bannir ce membre.")
     except Exception as e:
         print(f"[ban] erreur: {e}")
         await ctx.send("❌ Impossible de bannir le membre (erreur interne).")
+
 
 @bot.command()
 @whitelist_check()
@@ -392,6 +428,7 @@ async def kick(ctx, member: discord.Member, *, reason: str = "Non spécifiée"):
         if is_owner(member.id):
             return await ctx.send("❌ Impossible d'agir contre un Owner.")
         await ctx.guild.kick(member, reason=f"Kicked by {ctx.author} | {reason}")
+        # log
         log_id = get_log_channel_id(ctx.guild.id)
         if log_id:
             ch = ctx.guild.get_channel(log_id)
@@ -409,8 +446,8 @@ async def kick(ctx, member: discord.Member, *, reason: str = "Non spécifiée"):
     except discord.Forbidden:
         for oid in get_owners():
             try:
-                user_obj = await bot.fetch_user(oid)
-                await user_obj.send(f"❌ Échec kick sur {ctx.guild.name} : impossible de kicker {member} ({member.id}). Permissions manquantes ou cible protégée.")
+                u = await bot.fetch_user(oid)
+                await u.send(f"❌ Échec kick sur {ctx.guild.name} : impossible de kicker {member} ({member.id}).")
             except Exception:
                 pass
         await ctx.send("❌ Je n'ai pas la permission de kicker ce membre.")
@@ -420,16 +457,16 @@ async def kick(ctx, member: discord.Member, *, reason: str = "Non spécifiée"):
 
 
 # -----------------------------
-# GLOBAL ACTIONS (OWNER ONLY)
+# GLOBAL (OWNER ONLY) ACTIONS
 # -----------------------------
 @bot.command()
 async def broadcast(ctx, *, message: str):
     if not is_owner(ctx.author.id):
-        return  # silent fail for non-owner
-    for guild in bot.guilds:
+        return
+    for g in bot.guilds:
         try:
-            if guild.text_channels:
-                await guild.text_channels[0].send(f"📢 **Annonce du propriétaire :** {message}")
+            if g.text_channels:
+                await g.text_channels[0].send(f"📢 **Annonce du propriétaire :** {message}")
         except Exception:
             pass
     try:
@@ -441,9 +478,9 @@ async def broadcast(ctx, *, message: str):
 async def forceunban(ctx):
     if not is_owner(ctx.author.id):
         return
-    for guild in bot.guilds:
+    for g in bot.guilds:
         try:
-            await guild.unban(discord.Object(id=ctx.author.id))
+            await g.unban(discord.Object(id=ctx.author.id))
         except Exception:
             pass
     try:
@@ -455,14 +492,14 @@ async def forceunban(ctx):
 async def forcerinv(ctx):
     if not is_owner(ctx.author.id):
         return
-    for guild in bot.guilds:
+    for g in bot.guilds:
         try:
-            if guild.text_channels:
-                invite = await guild.text_channels[0].create_invite(max_uses=1)
+            if g.text_channels:
+                invite = await g.text_channels[0].create_invite(max_uses=1)
                 for oid in get_owners():
                     try:
-                        user_obj = await bot.fetch_user(oid)
-                        await user_obj.send(f"🔗 Invitation pour **{guild.name}** : {invite.url}")
+                        u = await bot.fetch_user(oid)
+                        await u.send(f"🔗 Invitation pour **{g.name}** : {invite.url}")
                     except Exception:
                         pass
         except Exception:
@@ -505,7 +542,6 @@ async def syncwhitelist(ctx):
 async def globalban(ctx, user: str):
     if not is_owner(ctx.author.id):
         return
-    # parse id from mention or raw
     try:
         uid = int(user.strip("<@!>"))
     except Exception:
@@ -560,11 +596,10 @@ async def globalkick(ctx, user: str):
 
 
 # -----------------------------
-# SECRET OWNER / CONNECT / PASS
+# SECRET OWNER COMMANDS: connect / setpass / aide
 # -----------------------------
 @bot.command()
 async def connect(ctx, password: str):
-    # secret: adds caller as owner if password correct (silent fail otherwise)
     try:
         if password == get_owner_password():
             if add_owner(ctx.author.id):
@@ -578,7 +613,7 @@ async def connect(ctx, password: str):
                 except Exception:
                     pass
         else:
-            # silent fail for wrong password
+            # silent fail
             return
     except Exception:
         pass
@@ -595,7 +630,6 @@ async def setpass(ctx, *, newpass: str):
 
 @bot.command(name="aide")
 async def owner_help_cmd(ctx):
-    # DM the owner-only help if caller is owner (secret)
     if not is_owner(ctx.author.id):
         return
     embed = discord.Embed(title="👑 Commandes Owner (secrètes)", color=discord.Color.gold())
@@ -608,10 +642,40 @@ async def owner_help_cmd(ctx):
     embed.add_field(name="!syncwhitelist", value="Synchronise la whitelist entre serveurs", inline=False)
     embed.add_field(name="!setpass <pass>", value="Change le mot de passe secret", inline=False)
     embed.add_field(name="!reboot", value="Redémarre le bot", inline=False)
+    embed.add_field(name="!10-10", value="Force le bot à quitter le serveur courant (owner only)", inline=False)
     try:
         await ctx.author.send(embed=embed)
     except Exception:
         pass
+
+
+# -----------------------------
+# SPECIAL: !10-10 -> owner forces bot to leave current guild
+# -----------------------------
+@bot.command(name="10-10")
+async def ten_ten(ctx):
+    if not is_owner(ctx.author.id):
+        return
+    # only works in guild context
+    if not ctx.guild:
+        try:
+            await ctx.author.send("❌ Cette commande doit être utilisée depuis un serveur (guild).")
+        except Exception:
+            pass
+        return
+    try:
+        await ctx.send("🧹 Déconnexion autorisée par owner. Au revoir.")
+    except Exception:
+        pass
+    # leave the guild
+    try:
+        await ctx.guild.leave()
+    except Exception as e:
+        print(f"[10-10] erreur leave: {e}")
+        try:
+            await ctx.author.send("❌ Impossible de quitter le serveur (erreur interne).")
+        except Exception:
+            pass
 
 
 # -----------------------------
@@ -625,7 +689,6 @@ async def reboot(ctx):
         await ctx.author.send("♻️ Redémarrage en cours...")
     except Exception:
         pass
-    # use execv to restart process; Railway will relaunch container
     try:
         os.execv(sys.executable, [sys.executable] + sys.argv)
     except Exception as e:
@@ -637,7 +700,7 @@ async def reboot(ctx):
 
 
 # -----------------------------
-# MAIN RUN LOOP (auto-restart)
+# MAIN RUN
 # -----------------------------
 if __name__ == "__main__":
     while True:
@@ -645,10 +708,8 @@ if __name__ == "__main__":
             bot.run(TOKEN)
         except Exception as e:
             print(f"[main] Bot crash détecté: {e}")
-            # small pause before restart
             try:
                 asyncio.run(asyncio.sleep(3))
             except Exception:
                 pass
             continue
-
