@@ -1,11 +1,5 @@
-discord.py==2.3.2
-aiohttp
-requests
-fastapi
-uvicorn[standard]
-python-multipart
-jinja2
-pydantic
-cachetools
-httpx
-uvloop; sys_platform != "win32"
+discord.py==2.7.3
+fastapi==0.115.2
+uvicorn==0.25.0
+requests==2.31.0
+python-multipart==1.2.6
