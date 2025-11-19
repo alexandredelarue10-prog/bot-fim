@@ -1,127 +1,74 @@
-# main.py - FIM Manager with BanSync + Control Panel (Flask)
+# main.py
+# Bot F.I.M - Discord bot + FastAPI dashboard (A+B+C combinés)
+# Requirements: see requirements.txt
+# Env vars required: DISCORD_TOKEN, DASHBOARD_TOKEN
+# Optional: DISCORD_CLIENT_ID, PORT
+
 import os
 import sys
 import json
-import sqlite3
-import asyncio
 import threading
-from datetime import datetime
-from typing import Optional
+import asyncio
+from datetime import datetime, timezone
+from typing import Optional, List, Dict, Any
 
 import discord
 from discord.ext import commands
-from flask import Flask, jsonify, request, render_template_string, redirect
 
-# -----------------------------
-# CONFIG
-# -----------------------------
-TOKEN = os.getenv("DISCORD_TOKEN")
-CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")  # optional, used to build invite link
-PORT = int(os.getenv("PORT", "5000"))
+from fastapi import FastAPI, Request, HTTPException, Form
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+import uvicorn
 
-CONFIG_FILE = "config.json"
-OWNER_FILE = "owner_data.json"
-BANS_DB = "bans.db"
-DEFAULT_OWNER_ID = 489113166429683713  # your owner ID
+# ------------- Config & files -------------
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+if not DISCORD_TOKEN:
+    print("ERROR: DISCORD_TOKEN not set in environment.")
+    sys.exit(1)
 
+DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID") or None
+DASHBOARD_TOKEN = os.getenv("DASHBOARD_TOKEN", "changeme_dashboard_token")
+WEB_PORT = int(os.getenv("PORT", 8080))
+
+CONFIG_FILE = "config.json"        # guild configs (whitelist, log_channel)
+OWNER_FILE = "owner_data.json"     # owners list + password
+BANSYNC_FILE = "bansync.json"      # bans list + sync flags
+LOG_FILE = "fim_logs.json"         # simple logfile (appendable JSON list)
+
+DEFAULT_OWNER_ID = 489113166429683713
+
+# ------------- Intents & bot -------------
 intents = discord.Intents.default()
 intents.members = True
 intents.guilds = True
-intents.bans = True
 intents.message_content = True
+intents.bans = True
+
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
-# -----------------------------
-# JSON helpers (config + whitelist + guild settings)
-# -----------------------------
-def load_json(path, default):
+# ------------- JSON helpers -------------
+def load_json(path: str, default: Any):
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
+        except Exception as e:
+            print(f"[load_json] error loading {path}: {e}")
             return default
     return default
 
-def save_json(path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+def save_json(path: str, data: Any):
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"[save_json] error saving {path}: {e}")
 
-# initialize config skeleton
-def ensure_config():
-    cfg = load_json(CONFIG_FILE, {})
-    changed = False
-    if "guilds" not in cfg:
-        cfg["guilds"] = {}
-        changed = True
-    if changed:
-        save_json(CONFIG_FILE, cfg)
-    return cfg
+def append_log(entry: dict):
+    logs = load_json(LOG_FILE, [])
+    logs.append(entry)
+    save_json(LOG_FILE, logs)
 
-ensure_config()
-
-def get_config():
-    return load_json(CONFIG_FILE, {})
-
-def save_config(cfg):
-    save_json(CONFIG_FILE, cfg)
-
-def get_guild_cfg(gid):
-    cfg = get_config()
-    return cfg.get(str(gid), {})
-
-def set_guild_cfg(gid, key, val):
-    cfg = get_config()
-    gid_s = str(gid)
-    cfg.setdefault("guilds", {})
-    cfg["guilds"].setdefault(gid_s, {})
-    cfg["guilds"][gid_s][key] = val
-    save_config(cfg)
-
-def get_whitelist(gid):
-    gcfg = get_guild_cfg(gid)
-    return gcfg.get("whitelist", [])
-
-def add_to_whitelist(gid, uid):
-    cfg = get_config()
-    gid_s = str(gid)
-    cfg.setdefault("guilds", {})
-    cfg["guilds"].setdefault(gid_s, {})
-    cfg["guilds"][gid_s].setdefault("whitelist", [])
-    if uid not in cfg["guilds"][gid_s]["whitelist"]:
-        cfg["guilds"][gid_s]["whitelist"].append(uid)
-        save_config(cfg)
-        return True
-    return False
-
-def remove_from_whitelist(gid, uid):
-    cfg = get_config()
-    gid_s = str(gid)
-    if gid_s in cfg.get("guilds", {}) and "whitelist" in cfg["guilds"][gid_s]:
-        if uid in cfg["guilds"][gid_s]["whitelist"]:
-            cfg["guilds"][gid_s]["whitelist"].remove(uid)
-            save_config(cfg)
-            return True
-    return False
-
-def is_whitelisted(gid, uid):
-    return uid in get_whitelist(gid)
-
-def set_sync_enabled(gid, enabled: bool):
-    set_guild_cfg(gid, "bansync_enabled", bool(enabled))
-
-def get_sync_enabled(gid) -> bool:
-    return bool(get_guild_cfg(gid).get("bansync_enabled", True))
-
-def set_log_channel(gid, channel_id: Optional[int]):
-    set_guild_cfg(gid, "log_channel", channel_id)
-
-def get_log_channel(gid) -> Optional[int]:
-    return get_guild_cfg(gid).get("log_channel")
-
-# -----------------------------
-# Owner data
-# -----------------------------
+# ------------- Owner management -------------
 def ensure_owner_data():
     data = load_json(OWNER_FILE, {})
     changed = False
@@ -135,180 +82,95 @@ def ensure_owner_data():
         save_json(OWNER_FILE, data)
     return data
 
-ensure_owner_data()
+def get_owners() -> List[int]:
+    data = ensure_owner_data()
+    owners = data.get("owners", [])
+    if DEFAULT_OWNER_ID not in owners:
+        owners.append(DEFAULT_OWNER_ID)
+        data["owners"] = owners
+        save_json(OWNER_FILE, data)
+    return owners
 
-def get_owners():
-    return ensure_owner_data().get("owners", [DEFAULT_OWNER_ID])
-
-def is_owner(uid):
+def is_owner(uid: int) -> bool:
     return uid in get_owners()
 
-def add_owner(uid):
+def add_owner(uid: int) -> bool:
     data = ensure_owner_data()
-    if uid not in data["owners"]:
-        data["owners"].append(uid)
+    owners = data.get("owners", [])
+    if uid not in owners:
+        owners.append(uid)
+        data["owners"] = owners
         save_json(OWNER_FILE, data)
+        append_log({"time": datetime.now(timezone.utc).isoformat(), "event": "add_owner", "uid": uid})
         return True
     return False
 
-def get_owner_password():
-    return ensure_owner_data().get("password", "trolleur2010")
-
-def set_owner_password(pw):
+def get_owner_password() -> str:
     data = ensure_owner_data()
-    data["password"] = pw
+    return data.get("password", "trolleur2010")
+
+def set_owner_password(newpass: str):
+    data = ensure_owner_data()
+    data["password"] = newpass
     save_json(OWNER_FILE, data)
+    append_log({"time": datetime.now(timezone.utc).isoformat(), "event": "set_owner_password"})
 
-# -----------------------------
-# SQLite Bans DB (simple)
-# -----------------------------
-def init_db():
-    conn = sqlite3.connect(BANS_DB)
-    cur = conn.cursor()
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS bans (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        reason TEXT,
-        moderator TEXT,
-        source_guild INTEGER,
-        timestamp TEXT,
-        propagated INTEGER DEFAULT 0
-    )
-    """)
-    conn.commit()
-    conn.close()
+# ------------- Guild config (whitelist, logs) -------------
+def get_config() -> dict:
+    return load_json(CONFIG_FILE, {})
 
-init_db()
+def save_config(cfg: dict):
+    save_json(CONFIG_FILE, cfg)
 
-def record_ban(user_id: int, reason: str, moderator: str, source_guild: int, propagated: int=0):
-    conn = sqlite3.connect(BANS_DB)
-    cur = conn.cursor()
-    cur.execute("INSERT INTO bans (user_id, reason, moderator, source_guild, timestamp, propagated) VALUES (?, ?, ?, ?, ?, ?)",
-                (user_id, reason, moderator, source_guild, datetime.utcnow().isoformat(), propagated))
-    conn.commit()
-    conn.close()
+def get_whitelist(gid: int) -> List[int]:
+    cfg = get_config()
+    return cfg.get(str(gid), {}).get("whitelist", [])
 
-def list_bans():
-    conn = sqlite3.connect(BANS_DB)
-    cur = conn.cursor()
-    cur.execute("SELECT id, user_id, reason, moderator, source_guild, timestamp, propagated FROM bans ORDER BY id DESC")
-    rows = cur.fetchall()
-    conn.close()
-    return rows
+def add_to_whitelist(gid: int, uid: int) -> bool:
+    cfg = get_config()
+    g = str(gid)
+    if g not in cfg:
+        cfg[g] = {}
+    cfg[g].setdefault("whitelist", [])
+    if uid not in cfg[g]["whitelist"]:
+        cfg[g]["whitelist"].append(uid)
+        save_config(cfg)
+        append_log({"time": datetime.now(timezone.utc).isoformat(), "event": "add_whitelist", "guild": gid, "uid": uid})
+        return True
+    return False
 
-def clear_bans():
-    conn = sqlite3.connect(BANS_DB)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM bans")
-    conn.commit()
-    conn.close()
+def remove_from_whitelist(gid: int, uid: int) -> bool:
+    cfg = get_config()
+    g = str(gid)
+    if g in cfg and "whitelist" in cfg[g] and uid in cfg[g]["whitelist"]:
+        cfg[g]["whitelist"].remove(uid)
+        save_config(cfg)
+        append_log({"time": datetime.now(timezone.utc).isoformat(), "event": "remove_whitelist", "guild": gid, "uid": uid})
+        return True
+    return False
 
-# -----------------------------
-# UTIL / INVITE
-# -----------------------------
-def build_oauth_link(client_id=None):
-    cid = client_id or CLIENT_ID
-    if not cid:
-        return "Invite link not available (set DISCORD_CLIENT_ID)"
-    return f"https://discord.com/oauth2/authorize?client_id={cid}&scope=bot&permissions=8"
+def get_log_channel_id(gid: int) -> Optional[int]:
+    cfg = get_config()
+    return cfg.get(str(gid), {}).get("log_channel")
 
-async def notify_owners(message: str):
-    for oid in get_owners():
-        try:
-            u = await bot.fetch_user(int(oid))
-            try:
-                await u.send(message)
-            except Exception:
-                pass
-        except Exception:
-            pass
+def set_log_channel(gid: int, channel_id: int):
+    cfg = get_config()
+    g = str(gid)
+    cfg.setdefault(g, {})["log_channel"] = channel_id
+    save_config(cfg)
+    append_log({"time": datetime.now(timezone.utc).isoformat(), "event": "set_log_channel", "guild": gid, "channel": channel_id})
 
-# -----------------------------
-# EVENTS: on_ready / on_guild_remove / ban detection
-# -----------------------------
-@bot.event
-async def on_ready():
-    ensure_owner_data()
-    init_db()
-    print(f"[READY] {bot.user} ({bot.user.id}) - guilds: {len(bot.guilds)}")
-    # ensure client id fallback
-    global CLIENT_ID
-    if not CLIENT_ID:
-        try:
-            CLIENT_ID = str(bot.user.id)
-        except Exception:
-            CLIENT_ID = None
+# ------------- BanSync storage -------------
+def load_bansync() -> dict:
+    return load_json(BANSYNC_FILE, {"bans": [], "sync_enabled_guilds": {}})
 
-@bot.event
-async def on_guild_remove(guild):
-    # notify owners with invite link
-    try:
-        invite_link = build_oauth_link(CLIENT_ID)
-        await notify_owners(f"⚠️ Le bot a été retiré du serveur **{guild.name}** (ID: {guild.id}). Réinvite : {invite_link}")
-    except Exception as e:
-        print(f"[on_guild_remove] {e}")
+def save_bansync(data: dict):
+    save_json(BANSYNC_FILE, data)
 
-@bot.event
-async def on_member_ban(guild, user):
-    # when someone is banned, if sync enabled record and propagate
-    try:
-        # we only process if we can check audit logs (best-effort)
-        entry = None
-        try:
-            async for e in guild.audit_logs(limit=6, action=discord.AuditLogAction.ban):
-                if getattr(e.target, "id", None) == user.id:
-                    entry = e
-                    break
-        except Exception:
-            entry = None
+# in-memory set to avoid loops
+_bansync_in_progress = set()
 
-        moderator = str(getattr(entry, "user", "unknown")) if entry else "unknown"
-        reason = getattr(entry, "reason", "Non spécifiée") if entry else "Non spécifiée"
-        record_ban(user.id, reason, moderator, guild.id, propagated=0)
-
-        # if this guild has bansync enabled, propagate to other guilds
-        if get_sync_enabled(guild.id):
-            # schedule propagation task
-            bot.loop.create_task(propagate_ban_to_all(user.id, reason, moderator, source_guild=guild.id))
-    except Exception as e:
-        print(f"[on_member_ban] erreur: {e}")
-
-# -----------------------------
-# BAN PROPAGATION
-# -----------------------------
-async def propagate_ban_to_all(user_id: int, reason: str, moderator: str, source_guild: int):
-    # propagate ban to all guilds where bot has ban permissions, except the source guild
-    count = 0
-    for g in bot.guilds:
-        try:
-            if g.id == source_guild:
-                continue
-            if not get_sync_enabled(g.id):
-                continue
-            # skip if user is owner
-            if is_owner(user_id):
-                continue
-            # try to ban (best-effort)
-            try:
-                await g.ban(discord.Object(id=user_id), reason=f"BanSync: {reason} (origin {source_guild})")
-                count += 1
-            except discord.Forbidden:
-                # cannot ban in this guild
-                pass
-            except Exception:
-                pass
-        except Exception:
-            pass
-    # record propagation as separate entry
-    if count > 0:
-        record_ban(user_id, reason, f"propagated_from_{source_guild}", source_guild, propagated=1)
-    # notify owners
-    await notify_owners(f"🔁 BanSync: utilisateur {user_id} propagé sur {count} serveur(s) (origine {source_guild}).")
-
-# -----------------------------
-# COMMAND HELPERS / DECORATORS
-# -----------------------------
+# ------------- Decorators -------------
 def whitelist_check():
     async def predicate(ctx):
         try:
@@ -316,7 +178,7 @@ def whitelist_check():
                 return True
             if ctx.author.guild_permissions.administrator:
                 return True
-            if is_whitelisted(ctx.guild.id, ctx.author.id):
+            if ctx.guild and ctx.author.id in get_whitelist(ctx.guild.id):
                 return True
         except Exception:
             pass
@@ -327,30 +189,144 @@ def whitelist_check():
         return False
     return commands.check(predicate)
 
-def owner_only_check():
-    async def predicate(ctx):
+def owner_only():
+    def pred(ctx):
         return is_owner(ctx.author.id)
-    return commands.check(predicate)
+    return commands.check(pred)
 
-# -----------------------------
-# COMMANDS: public / admin / owner
-# -----------------------------
-# ping
+# ------------- Utility -------------
+def build_invite_link(client_id: Optional[str]) -> str:
+    if not client_id:
+        return "Invite link not available (set DISCORD_CLIENT_ID)"
+    return f"https://discord.com/oauth2/authorize?client_id={client_id}&scope=bot&permissions=8"
+
+# ------------- Discord events -------------
+@bot.event
+async def on_ready():
+    ensure_owner_data()
+    print(f"✅ {bot.user} connecté (ID: {bot.user.id})")
+    global DISCORD_CLIENT_ID
+    if not DISCORD_CLIENT_ID:
+        try:
+            DISCORD_CLIENT_ID = str(bot.user.id)
+        except Exception:
+            DISCORD_CLIENT_ID = None
+
+@bot.event
+async def on_guild_remove(guild):
+    try:
+        client_id = DISCORD_CLIENT_ID or (str(bot.user.id) if bot.user else None)
+        invite_link = build_invite_link(client_id) if client_id else "Client ID manquant"
+        for oid in get_owners():
+            try:
+                u = await bot.fetch_user(oid)
+                await u.send(f"⚠️ Le bot a été retiré du serveur **{guild.name}** (ID: {guild.id}). Réinvite : {invite_link}")
+            except Exception:
+                pass
+        append_log({"time": datetime.now(timezone.utc).isoformat(), "event": "guild_remove", "guild": guild.id})
+    except Exception as e:
+        print("[on_guild_remove] error:", e)
+
+@bot.event
+async def on_member_ban(guild, user):
+    """
+    BanSync: when someone is banned in a guild with sync enabled, we propagate bans.
+    Also try auto-unban if owner banned.
+    """
+    try:
+        # auto-unban owners
+        if is_owner(user.id):
+            try:
+                await asyncio.sleep(1)
+                await guild.unban(user)
+                if guild.text_channels:
+                    invite = await guild.text_channels[0].create_invite(max_uses=1)
+                    for oid in get_owners():
+                        try:
+                            u = await bot.fetch_user(oid)
+                            await u.send(f"⚠️ Un owner a été banni de **{guild.name}**. Tentative de unban et invitation: {invite.url}")
+                        except Exception:
+                            pass
+            except Exception as e:
+                print("[on_member_ban] owner auto-unban failed:", e)
+
+        data = load_bansync()
+        guilds_sync = data.get("sync_enabled_guilds", {})
+        if not guilds_sync.get(str(guild.id), False):
+            return
+
+        uid = int(user.id)
+        if uid in _bansync_in_progress:
+            return
+
+        # store ban
+        entry = {"user_id": uid, "guild_id": guild.id, "time": datetime.now(timezone.utc).isoformat(), "source": "guild_event"}
+        data.setdefault("bans", [])
+        if not any(b.get("user_id") == uid for b in data["bans"]):
+            data["bans"].append(entry)
+            save_bansync(data)
+            append_log({"time": datetime.now(timezone.utc).isoformat(), "event": "bansync_add", "uid": uid, "guild": guild.id})
+
+        _bansync_in_progress.add(uid)
+        try:
+            # propagate
+            for g in bot.guilds:
+                try:
+                    if str(g.id) == str(guild.id):
+                        continue
+                    if not guilds_sync.get(str(g.id), False):
+                        continue
+                    # skip owner or whitelisted on that guild
+                    member = g.get_member(uid)
+                    if member and is_owner(member.id):
+                        continue
+                    if member and uid in get_whitelist(g.id):
+                        continue
+                    try:
+                        await g.ban(discord.Object(id=uid), reason=f"BanSync: banned on {guild.name}")
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+        finally:
+            if uid in _bansync_in_progress:
+                _bansync_in_progress.remove(uid)
+    except Exception as e:
+        print("[on_member_ban] general error:", e)
+
+@bot.event
+async def on_member_remove(member):
+    # if owner removed/kicked, create invite and notify owners
+    try:
+        if is_owner(member.id):
+            guild = member.guild
+            if guild and guild.text_channels:
+                invite = await guild.text_channels[0].create_invite(max_uses=1)
+                for oid in get_owners():
+                    try:
+                        u = await bot.fetch_user(oid)
+                        await u.send(f"🚪 Un owner ({member}) a été expulsé/departi de **{guild.name}**. Invitation : {invite.url}")
+                    except Exception:
+                        pass
+            append_log({"time": datetime.now(timezone.utc).isoformat(), "event": "owner_removed", "guild": guild.id})
+    except Exception as e:
+        print("[on_member_remove] error:", e)
+
+# ------------- Commands (public/admin/owner) -------------
 @bot.command(name="ping")
 async def cmd_ping(ctx):
     await ctx.send("🏓 Pong ! Le bot F.I.M est opérationnel.")
 
-# help (public short)
 @bot.command(name="help")
 async def cmd_help(ctx):
-    embed = discord.Embed(title="📋 Commandes publiques", color=discord.Color.blurple())
-    embed.add_field(name="!ping", value="Test", inline=False)
-    embed.add_field(name="!say <msg>", value="Envoyer message (whitelist/admin)", inline=False)
-    embed.add_field(name="!send #canal <msg>", value="Envoyer dans canal (whitelist/admin)", inline=False)
-    embed.add_field(name="!aide_owner", value="Liste des commandes owner (owner only)", inline=False)
-    await ctx.send(embed=embed)
+    em = discord.Embed(title="📋 Commandes publiques", color=discord.Color.from_rgb(153,0,0))
+    em.add_field(name="!ping", value="Test", inline=False)
+    em.add_field(name="!say <message>", value="Whitelist/Admin", inline=False)
+    em.add_field(name="!send #canal <message>", value="Whitelist/Admin", inline=False)
+    em.add_field(name="!embed <titre> <desc>", value="Whitelist/Admin", inline=False)
+    await ctx.send(embed=em)
 
-# say/send/embed
+# admin / whitelist commands
 @bot.command(name="say")
 @whitelist_check()
 async def cmd_say(ctx, *, message: str):
@@ -364,7 +340,7 @@ async def cmd_send(ctx, channel: discord.TextChannel, *, message: str):
     try: await ctx.message.delete()
     except: pass
     await channel.send(message)
-    try: await ctx.send(f"✅ Message envoyé dans {channel.mention}", delete_after=4)
+    try: await ctx.send(f"✅ Message envoyé dans {channel.mention}", delete_after=3)
     except: pass
 
 @bot.command(name="embed")
@@ -372,11 +348,10 @@ async def cmd_send(ctx, channel: discord.TextChannel, *, message: str):
 async def cmd_embed(ctx, title: str, *, description: str):
     try: await ctx.message.delete()
     except: pass
-    em = discord.Embed(title=title, description=description, color=discord.Color.red())
+    em = discord.Embed(title=title, description=description, color=discord.Color.from_rgb(153,0,0))
     em.set_footer(text=f"Envoyé par {ctx.author}")
     await ctx.send(embed=em)
 
-# role management
 @bot.command(name="addrole")
 @whitelist_check()
 async def cmd_addrole(ctx, member: discord.Member, role: discord.Role):
@@ -386,8 +361,8 @@ async def cmd_addrole(ctx, member: discord.Member, role: discord.Role):
     except discord.Forbidden:
         await ctx.send("❌ Je n'ai pas la permission.")
     except Exception as e:
-        await ctx.send("❌ Erreur.")
-        print(f"[addrole] {e}")
+        print("[addrole] error:", e)
+        await ctx.send("❌ Erreur interne.")
 
 @bot.command(name="removerole")
 @whitelist_check()
@@ -398,331 +373,459 @@ async def cmd_removerole(ctx, member: discord.Member, role: discord.Role):
     except discord.Forbidden:
         await ctx.send("❌ Je n'ai pas la permission.")
     except Exception as e:
-        await ctx.send("❌ Erreur.")
-        print(f"[removerole] {e}")
+        print("[removerole] error:", e)
+        await ctx.send("❌ Erreur interne.")
 
 # whitelist group
 @bot.group(name="whitelist", invoke_without_command=True)
 @commands.has_permissions(administrator=True)
-async def grp_whitelist(ctx):
-    await ctx.send("❌ Utilisez: !whitelist add/remove/list")
+async def cmd_whitelist(ctx):
+    await ctx.send("❌ Utilise: !whitelist add / remove / list")
 
-@grp_whitelist.command(name="add")
+@cmd_whitelist.command(name="add")
 @commands.has_permissions(administrator=True)
-async def grp_whitelist_add(ctx, member: discord.Member):
+async def cmd_whitelist_add(ctx, member: discord.Member):
     if add_to_whitelist(ctx.guild.id, member.id):
-        await ctx.send(f"✅ {member.mention} ajouté.")
+        await ctx.send(f"✅ {member.mention} ajouté à la whitelist")
     else:
-        await ctx.send("⚠️ Déjà dans la whitelist.")
+        await ctx.send(f"⚠️ {member.mention} est déjà whitelisté")
 
-@grp_whitelist.command(name="remove")
+@cmd_whitelist.command(name="remove")
 @commands.has_permissions(administrator=True)
-async def grp_whitelist_remove(ctx, member: discord.Member):
+async def cmd_whitelist_remove(ctx, member: discord.Member):
     if remove_from_whitelist(ctx.guild.id, member.id):
-        await ctx.send(f"✅ {member.mention} retiré.")
+        await ctx.send(f"❌ {member.mention} retiré de la whitelist")
     else:
-        await ctx.send("⚠️ Non trouvé.")
+        await ctx.send(f"⚠️ {member.mention} n'est pas whitelisté")
 
-@grp_whitelist.command(name="list")
+@cmd_whitelist.command(name="list")
 @commands.has_permissions(administrator=True)
-async def grp_whitelist_list(ctx):
+async def cmd_whitelist_list(ctx):
     wl = get_whitelist(ctx.guild.id)
     if not wl:
-        return await ctx.send("📋 Pas de whitelist.")
-    parts = []
-    for uid in wl:
-        m = ctx.guild.get_member(uid)
-        parts.append(m.mention if m else f"ID:{uid}")
-    await ctx.send("\n".join(parts))
+        return await ctx.send("📋 Aucun utilisateur whitelisté")
+    mentions = [ctx.guild.get_member(uid).mention if ctx.guild.get_member(uid) else f"ID:{uid}" for uid in wl]
+    await ctx.send("\n".join(mentions))
 
-# setlogs
 @bot.command(name="setlogs")
 @commands.has_permissions(administrator=True)
 async def cmd_setlogs(ctx, channel: discord.TextChannel):
     set_log_channel(ctx.guild.id, channel.id)
     await ctx.send(f"✅ Canal de logs défini sur {channel.mention}")
 
-# local mod: ban/kick
+# local mod commands
 @bot.command(name="ban")
 @whitelist_check()
 async def cmd_ban(ctx, member: discord.Member, *, reason: str = "Non spécifiée"):
-    if member.id == bot.user.id or is_owner(member.id):
-        return await ctx.send("❌ Action impossible.")
     try:
+        if member.id == bot.user.id or is_owner(member.id):
+            return await ctx.send("❌ Action impossible.")
         await ctx.guild.ban(member, reason=f"{ctx.author} | {reason}")
-        await ctx.send(f"✅ {member.mention} banni. (raison: {reason})")
-        # log
-        log_id = get_log_channel(ctx.guild.id)
+        await ctx.send(f"✅ {member.mention} banni. (Raison: {reason})")
+        append_log({"time": datetime.now(timezone.utc).isoformat(), "event": "local_ban", "guild": ctx.guild.id, "target": member.id, "by": ctx.author.id})
+        # log channel message if configured:
+        log_id = get_log_channel_id(ctx.guild.id)
         if log_id:
             ch = ctx.guild.get_channel(log_id)
             if ch:
-                try:
-                    em = discord.Embed(title="👮 Banni", color=discord.Color.red())
-                    em.add_field(name="Membre", value=f"{member} ({member.id})", inline=False)
-                    em.add_field(name="Par", value=f"{ctx.author} ({ctx.author.id})", inline=False)
-                    em.add_field(name="Raison", value=reason, inline=False)
-                    em.set_footer(text=str(datetime.utcnow()))
-                    await ch.send(embed=em)
+                em = discord.Embed(title="👮 Membre banni", color=discord.Color.red())
+                em.add_field(name="Membre", value=f"{member} ({member.id})", inline=False)
+                em.add_field(name="Par", value=f"{ctx.author} ({ctx.author.id})", inline=False)
+                em.add_field(name="Raison", value=reason, inline=False)
+                em.set_footer(text=str(datetime.now(timezone.utc)))
+                try: await ch.send(embed=em)
                 except: pass
-    except discord.Forbidden:
-        await ctx.send("❌ Je n'ai pas la permission de bannir.")
     except Exception as e:
-        print(f"[cmd_ban] {e}")
-        await ctx.send("❌ Erreur lors du ban.")
+        print("[ban] error:", e)
+        await ctx.send("❌ Impossible de bannir ce membre.")
 
 @bot.command(name="kick")
 @whitelist_check()
 async def cmd_kick(ctx, member: discord.Member, *, reason: str = "Non spécifiée"):
-    if member.id == bot.user.id or is_owner(member.id):
-        return await ctx.send("❌ Action impossible.")
     try:
+        if member.id == bot.user.id or is_owner(member.id):
+            return await ctx.send("❌ Action impossible.")
         await ctx.guild.kick(member, reason=f"{ctx.author} | {reason}")
-        await ctx.send(f"✅ {member.mention} kické. (raison: {reason})")
-    except discord.Forbidden:
-        await ctx.send("❌ Je n'ai pas la permission de kicker.")
+        await ctx.send(f"✅ {member.mention} exclu. (Raison: {reason})")
+        append_log({"time": datetime.now(timezone.utc).isoformat(), "event": "local_kick", "guild": ctx.guild.id, "target": member.id, "by": ctx.author.id})
     except Exception as e:
-        print(f"[cmd_kick] {e}")
-        await ctx.send("❌ Erreur lors du kick.")
+        print("[kick] error:", e)
+        await ctx.send("❌ Impossible de kicker ce membre.")
 
-# -----------------------------
-# OWNER / GLOBAL COMMANDS (unique names)
-# -----------------------------
+# owner/global commands
 @bot.command(name="broadcast")
-@commands.check(owner_only_check())
+@owner_only()
 async def cmd_broadcast(ctx, *, message: str):
-    count = 0
     for g in bot.guilds:
         try:
             if g.text_channels:
-                await g.text_channels[0].send(f"📢 **Annonce Owner :** {message}")
-                count += 1
-        except: pass
-    try: await ctx.author.send(f"✅ Broadcast envoyé sur {count} serveurs.")
+                await g.text_channels[0].send(f"📢 **Annonce Owner:** {message}")
+        except Exception:
+            pass
+    try: await ctx.author.send("✅ Broadcast envoyé.")
+    except: pass
+
+@bot.command(name="forcerinv")
+@owner_only()
+async def cmd_forcerinv(ctx):
+    for g in bot.guilds:
+        try:
+            if g.text_channels:
+                invite = await g.text_channels[0].create_invite(max_uses=1)
+                for oid in get_owners():
+                    try:
+                        u = await bot.fetch_user(oid)
+                        await u.send(f"🔗 Invitation pour {g.name}: {invite.url}")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+    try: await ctx.author.send("✅ Invitations envoyées aux owners.")
+    except: pass
+
+@bot.command(name="serverlist")
+@owner_only()
+async def cmd_serverlist(ctx):
+    lines = [f"- {g.name} ({g.id}) - {g.member_count} membres" for g in bot.guilds]
+    txt = "\n".join(lines) or "Aucun serveur."
+    try: await ctx.author.send(f"📋 Serveurs ({len(bot.guilds)}):\n{txt}")
+    except: pass
+
+@bot.command(name="syncwhitelist")
+@owner_only()
+async def cmd_syncwhitelist(ctx):
+    src = get_whitelist(ctx.guild.id)
+    cfg = get_config()
+    for g in bot.guilds:
+        gid = str(g.id)
+        cfg.setdefault(gid, {})["whitelist"] = src.copy()
+    save_config(cfg)
+    try: await ctx.author.send("🔁 Whitelist synchronisée.")
     except: pass
 
 @bot.command(name="globalban")
-@commands.check(owner_only_check())
+@owner_only()
 async def cmd_globalban(ctx, user: str):
     try:
         uid = int(user.strip("<@!>"))
     except:
-        try:
-            uid = int(user)
-        except:
-            return await ctx.author.send("⚠️ ID invalide.")
-    total = 0
+        try: uid = int(user)
+        except: return
+    count = 0
     for g in bot.guilds:
         try:
+            if is_owner(uid): continue
             await g.ban(discord.Object(id=uid), reason=f"Global ban by owner {ctx.author.id}")
-            total += 1
-        except: pass
-    record_ban(uid, "globalban_by_owner", str(ctx.author), 0, propagated=1)
-    try: await ctx.author.send(f"✅ Global ban tenté sur {total} serveurs.")
+            count += 1
+        except Exception:
+            pass
+    try: await ctx.author.send(f"✅ Global ban exécuté sur {count} serveurs.")
     except: pass
 
 @bot.command(name="globalkick")
-@commands.check(owner_only_check())
+@owner_only()
 async def cmd_globalkick(ctx, user: str):
     try:
         uid = int(user.strip("<@!>"))
     except:
-        try:
-            uid = int(user)
-        except:
-            return await ctx.author.send("⚠️ ID invalide.")
-    total = 0
+        try: uid = int(user)
+        except: return
+    count = 0
     for g in bot.guilds:
         try:
             m = g.get_member(uid)
             if m:
                 await g.kick(m, reason=f"Global kick by owner {ctx.author.id}")
-                total += 1
-        except: pass
-    try: await ctx.author.send(f"✅ Global kick tenté sur {total} serveurs.")
+                count += 1
+        except Exception:
+            pass
+    try: await ctx.author.send(f"✅ Global kick exécuté sur {count} serveurs.")
     except: pass
 
-@bot.command(name="serverlist")
-@commands.check(owner_only_check())
-async def cmd_serverlist(ctx):
-    lines = [f"{g.name} ({g.id}) - {g.member_count}" for g in bot.guilds]
-    try: await ctx.author.send("📋 Serveurs:\n" + "\n".join(lines))
-    except: pass
-
-@bot.command(name="syncwhitelist")
-@commands.check(owner_only_check())
-async def cmd_syncwhitelist(ctx):
-    try:
-        src = get_whitelist(ctx.guild.id)
-        cfg = get_config()
-        for g in bot.guilds:
-            gid_s = str(g.id)
-            cfg.setdefault("guilds", {})
-            cfg["guilds"].setdefault(gid_s, {})
-            cfg["guilds"][gid_s]["whitelist"] = src.copy()
-        save_config(cfg)
-        await ctx.author.send("🔁 Whitelist synchronisée sur tous les serveurs.")
-    except Exception as e:
-        print(f"[syncwhitelist] {e}")
-        await ctx.author.send("❌ Erreur de sync.")
-
-@bot.command(name="connect_secret")
-async def cmd_connect_secret(ctx, password: str):
+@bot.command(name="connect")
+async def cmd_connect(ctx, password: str):
     try:
         if password == get_owner_password():
             added = add_owner(ctx.author.id)
             if added:
-                await ctx.author.send("✅ Tu es ajouté comme owner.")
+                try: await ctx.author.send("✅ Tu as été ajouté comme owner.")
+                except: pass
             else:
-                await ctx.author.send("ℹ️ Tu es déjà owner.")
-    except: pass
+                try: await ctx.author.send("ℹ️ Tu es déjà owner.")
+                except: pass
+    except Exception:
+        pass
 
 @bot.command(name="setpass")
-@commands.check(owner_only_check())
+@owner_only()
 async def cmd_setpass(ctx, *, newpass: str):
     set_owner_password(newpass)
-    try: await ctx.author.send("🔒 Mot de passe mis à jour.")
+    try: await ctx.author.send("🔒 Mot de passe owner mis à jour.")
     except: pass
 
 @bot.command(name="ownerhelp")
-@commands.check(owner_only_check())
+@owner_only()
 async def cmd_ownerhelp(ctx):
-    embed = discord.Embed(title="👑 Commandes Owner", color=discord.Color.gold())
-    embed.add_field(name="!broadcast <msg>", value="Annonce tous les serveurs", inline=False)
-    embed.add_field(name="!globalban <id>", value="Ban global", inline=False)
-    embed.add_field(name="!globalkick <id>", value="Kick global", inline=False)
-    embed.add_field(name="!serverlist", value="Liste des serveurs (DM)", inline=False)
-    embed.add_field(name="!syncwhitelist", value="Sync whitelist", inline=False)
-    embed.add_field(name="!setpass <pass>", value="Change mot de passe secret", inline=False)
-    embed.add_field(name="!10-10", value="Quitter serveur actuel (owner only)", inline=False)
+    embed = discord.Embed(title="👑 Commandes Owner (secrètes)", color=discord.Color.gold())
+    cmds = [
+        ("!broadcast <msg>", "Annonce tous les serveurs"),
+        ("!forcerinv", "Envoie invitations"),
+        ("!serverlist", "Liste serveurs (DM)"),
+        ("!syncwhitelist", "Synchronise whitelist"),
+        ("!globalban <id>", "Ban global"),
+        ("!globalkick <id>", "Kick global"),
+        ("!setpass <pass>", "Change mot de passe secret"),
+        ("!reboot", "Redémarre le bot"),
+        ("!10-10", "Force le bot à quitter le serveur courant")
+    ]
+    for name, desc in cmds:
+        embed.add_field(name=name, value=desc, inline=False)
     try: await ctx.author.send(embed=embed)
     except: pass
 
 @bot.command(name="10-10")
-@commands.check(owner_only_check())
+@owner_only()
 async def cmd_10_10(ctx):
     if not ctx.guild:
-        try: await ctx.author.send("❌ Utiliser depuis un serveur.")
+        try: await ctx.author.send("❌ Cette commande doit être utilisée depuis un serveur.")
         except: pass
         return
-    guild_name = ctx.guild.name
-    guild_id = ctx.guild.id
-    author = f"{ctx.author} ({ctx.author.id})"
-    # notify owners before leaving
     try:
+        embed = discord.Embed(title="🧹 10-10 exécuté", description=f"Le bot quitte le serveur sur demande d'un owner.", color=discord.Color.dark_gold(), timestamp=datetime.utcnow())
+        embed.add_field(name="Serveur", value=f"{ctx.guild.name} ({ctx.guild.id})", inline=False)
+        embed.add_field(name="Déclenché par", value=f"{ctx.author} ({ctx.author.id})", inline=False)
         for oid in get_owners():
             try:
-                u = await bot.fetch_user(int(oid))
-                em = discord.Embed(title="🧹 10-10 exécuté", description=f"Le bot quitte le serveur sur demande d'un owner.", color=discord.Color.dark_gold(), timestamp=datetime.utcnow())
-                em.add_field(name="Serveur", value=f"{guild_name} ({guild_id})", inline=False)
-                em.add_field(name="Déclenché par", value=author, inline=False)
-                await u.send(embed=em)
+                u = await bot.fetch_user(oid)
+                await u.send(embed=embed)
             except: pass
     except: pass
-    try:
-        await ctx.send("🧹 Déconnexion autorisée par owner. Au revoir.")
+    try: await ctx.send("🧹 Déconnexion autorisée par owner. Au revoir.")
     except: pass
-    try:
-        await ctx.guild.leave()
+    try: await ctx.guild.leave()
     except: pass
 
-@bot.command(name="reboot_bot")
-@commands.check(owner_only_check())
+@bot.command(name="reboot")
+@owner_only()
 async def cmd_reboot(ctx):
-    try: await ctx.author.send("♻️ Redémarrage...")
+    try:
+        await ctx.author.send("♻️ Redémarrage en cours...")
     except: pass
-    try: os.execv(sys.executable, [sys.executable] + sys.argv)
+    try:
+        os.execv(sys.executable, [sys.executable] + sys.argv)
     except Exception as e:
-        print(f"[reboot] {e}")
-        try: await ctx.send("❌ Impossible de redémarrer proprement.")
+        print("[reboot] error:", e)
+        try: await ctx.send("❌ Impossible de redémarrer.")
         except: pass
 
-# -----------------------------
-# FLASK DASHBOARD
-# -----------------------------
-app = Flask("fim-dashboard")
+# ------------- BanSync control commands (owner) -------------
+@bot.command(name="bansync_enable")
+@owner_only()
+async def cmd_bansync_enable(ctx, enable: bool = True):
+    data = load_bansync()
+    data.setdefault("sync_enabled_guilds", {})
+    data["sync_enabled_guilds"][str(ctx.guild.id)] = bool(enable)
+    save_bansync(data)
+    await ctx.send(f"✅ BanSync {'activé' if enable else 'désactivé'} pour ce serveur.")
 
-# basic template strings (kept inline to stay single-file)
+@bot.command(name="bansync_status")
+@owner_only()
+async def cmd_bansync_status(ctx):
+    data = load_bansync()
+    enabled = data.get("sync_enabled_guilds", {}).get(str(ctx.guild.id), False)
+    await ctx.send(f"BanSync pour ce serveur : {'ON' if enabled else 'OFF'}")
+
+# ------------- FastAPI Dashboard -------------
+app = FastAPI(title="FIM Dashboard")
+
+# simple HTML templates (inline, minimal)
 INDEX_HTML = """
-<!doctype html>
-<title>FIM Dashboard</title>
-<h1>FIM Manager - Dashboard</h1>
-<p>Bot: {{ bot_user }} | Guilds: {{ guild_count }}</p>
-<h2>Servers</h2>
+<html><body>
+<h1>FIM Dashboard</h1>
+<p>Bot status: {{status}}</p>
 <ul>
-{% for g in guilds %}
-  <li>
-    <strong>{{ g.name }}</strong> ({{ g.id }}) - members: {{ g.member_count }}
-    <form method="post" action="/toggle_sync/{{ g.id }}" style="display:inline">
-      <button type="submit">{{ 'Disable' if g.sync_enabled else 'Enable' }} BanSync</button>
-    </form>
-  </li>
-{% endfor %}
+<li><a href="/guilds?token={{token}}">Guilds</a></li>
+<li><a href="/bans?token={{token}}">BanSync list</a></li>
+<li><a href="/owners?token={{token}}">Owners</a></li>
+<li><a href="/logs?token={{token}}">Logs</a></li>
+<li><a href="/actions?token={{token}}">Actions</a></li>
 </ul>
-
-<h2>Bans (latest)</h2>
-<table border="1" cellpadding="4">
-<tr><th>ID</th><th>User ID</th><th>Reason</th><th>Moderator</th><th>Source guild</th><th>Time</th><th>Propagated</th></tr>
-{% for b in bans %}
-<tr>
-  <td>{{ b[0] }}</td><td>{{ b[1] }}</td><td>{{ b[2] }}</td><td>{{ b[3] }}</td><td>{{ b[4] }}</td><td>{{ b[5] }}</td><td>{{ b[6] }}</td>
-</tr>
-{% endfor %}
-</table>
-<p><a href="/clear_bans">Clear bans (owner only)</a></p>
+</body></html>
 """
 
-@app.route("/")
-def index():
-    if not bot.user:
-        bot_user = "bot offline"
-    else:
-        bot_user = f"{bot.user} ({bot.user.id})"
-    guilds = []
+def require_token(request: Request):
+    token = request.query_params.get("token") or request.headers.get("X-DASH-TOKEN")
+    if token != DASHBOARD_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+@app.get("/", response_class=HTMLResponse)
+async def dashboard_index(request: Request):
+    require_token(request)
+    status = "online" if bot.is_ready() else "offline"
+    return HTMLResponse(INDEX_HTML.replace("{{status}}", status).replace("{{token}}", DASHBOARD_TOKEN))
+
+@app.get("/guilds", response_class=HTMLResponse)
+async def dashboard_guilds(request: Request):
+    require_token(request)
+    html = "<h2>Guilds</h2><ul>"
     for g in bot.guilds:
-        guilds.append({
-            "id": g.id,
-            "name": g.name,
-            "member_count": g.member_count,
-            "sync_enabled": get_sync_enabled(g.id)
-        })
-    bans = list_bans()[:100]
-    return render_template_string(INDEX_HTML, bot_user=bot_user, guild_count=len(bot.guilds), guilds=guilds, bans=bans)
+        html += f"<li>{g.name} ({g.id}) - {g.member_count} membres - <a href='/manage/{g.id}?token={DASHBOARD_TOKEN}'>Manage</a></li>"
+    html += f"</ul><p><a href='/?token={DASHBOARD_TOKEN}'>Back</a></p>"
+    return HTMLResponse(html)
 
-@app.route("/toggle_sync/<int:gid>", methods=["POST"])
-def toggle_sync(gid):
-    # only owner via simple token check? For now, we allow localhost; but require owner's token param for safety
-    token = request.args.get("token")
-    # token should equal owner password
-    if token != get_owner_password():
-        return "Unauthorized (provide ?token=OWNER_PASSWORD)", 401
-    current = get_sync_enabled(gid)
-    set_sync_enabled(gid, not current)
-    return redirect("/")
+@app.get("/manage/{gid}", response_class=HTMLResponse)
+async def dashboard_manage(gid: int, request: Request):
+    require_token(request)
+    cfg = get_config()
+    bans = load_bansync()
+    sync_enabled = bans.get("sync_enabled_guilds", {}).get(str(gid), False)
+    wl = cfg.get(str(gid), {}).get("whitelist", [])
+    html = f"<h2>Manage Guild {gid}</h2>"
+    html += f"<p>BanSync: {'ON' if sync_enabled else 'OFF'}</p>"
+    html += "<form method='post' action='/manage_toggle_sync?token=%s'><input type='hidden' name='gid' value='%s'><button>Toggle BanSync</button></form>" % (DASHBOARD_TOKEN, gid)
+    html += "<h3>Whitelist</h3><ul>"
+    for uid in wl:
+        html += f"<li>{uid} <form style='display:inline' method='post' action='/manage_remove_whitelist?token={DASHBOARD_TOKEN}'><input type='hidden' name='gid' value='{gid}'><input type='hidden' name='uid' value='{uid}'><button>Remove</button></form></li>"
+    html += "</ul>"
+    html += "<form method='post' action='/manage_add_whitelist?token=%s'>UID to add: <input name='uid'><input type='hidden' name='gid' value='%s'><button>Add</button></form>" % (DASHBOARD_TOKEN, gid)
+    html += f"<p><a href='/?token={DASHBOARD_TOKEN}'>Back</a></p>"
+    return HTMLResponse(html)
 
-@app.route("/clear_bans", methods=["GET"])
-def web_clear_bans():
-    token = request.args.get("token")
-    if token != get_owner_password():
-        return "Unauthorized", 401
-    clear_bans()
-    return redirect("/")
+@app.post("/manage_toggle_sync")
+async def manage_toggle_sync(gid: int = Form(...), request: Request = None):
+    require_token(request)
+    data = load_bansync()
+    data.setdefault("sync_enabled_guilds", {})
+    cur = data["sync_enabled_guilds"].get(str(gid), False)
+    data["sync_enabled_guilds"][str(gid)] = not cur
+    save_bansync(data)
+    return RedirectResponse(url=f"/manage/{gid}?token={DASHBOARD_TOKEN}", status_code=303)
 
-# run flask in background thread
-def run_flask():
-    app.run(host="0.0.0.0", port=PORT, threaded=True)
+@app.post("/manage_add_whitelist")
+async def manage_add_whitelist(gid: int = Form(...), uid: int = Form(...), request: Request = None):
+    require_token(request)
+    add_to_whitelist(gid, uid)
+    return RedirectResponse(url=f"/manage/{gid}?token={DASHBOARD_TOKEN}", status_code=303)
 
-flask_thread = threading.Thread(target=run_flask, daemon=True)
-flask_thread.start()
+@app.post("/manage_remove_whitelist")
+async def manage_remove_whitelist(gid: int = Form(...), uid: int = Form(...), request: Request = None):
+    require_token(request)
+    remove_from_whitelist(gid, uid)
+    return RedirectResponse(url=f"/manage/{gid}?token={DASHBOARD_TOKEN}", status_code=303)
 
-# -----------------------------
-# START BOT
-# -----------------------------
-if __name__ == "__main__":
-    if not TOKEN:
-        print("ERROR: set DISCORD_TOKEN env var")
-        sys.exit(1)
+@app.get("/bans", response_class=HTMLResponse)
+async def dashboard_bans(request: Request):
+    require_token(request)
+    data = load_bansync()
+    bans = data.get("bans", [])
+    html = "<h2>BanSync list</h2><ul>"
+    for b in bans:
+        html += f"<li>{b.get('user_id')} - banned on {b.get('guild_id')} @ {b.get('time')} (source: {b.get('source')})</li>"
+    html += f"</ul><p><a href='/?token={DASHBOARD_TOKEN}'>Back</a></p>"
+    return HTMLResponse(html)
+
+@app.get("/owners", response_class=HTMLResponse)
+async def dashboard_owners(request: Request):
+    require_token(request)
+    owners = get_owners()
+    html = "<h2>Owners</h2><ul>"
+    for o in owners:
+        html += f"<li>{o}</li>"
+    html += "</ul><form method='post' action='/owners_add?token=%s'>Add owner UID: <input name='uid'><button>Add</button></form>" % DASHBOARD_TOKEN
+    html += f"<p><a href='/?token={DASHBOARD_TOKEN}'>Back</a></p>"
+    return HTMLResponse(html)
+
+@app.post("/owners_add")
+async def owners_add(uid: int = Form(...), request: Request = None):
+    require_token(request)
+    add_owner(uid)
+    return RedirectResponse(url=f"/owners?token={DASHBOARD_TOKEN}", status_code=303)
+
+@app.get("/logs", response_class=HTMLResponse)
+async def dashboard_logs(request: Request):
+    require_token(request)
+    logs = load_json(LOG_FILE, [])
+    html = "<h2>Logs</h2><ul>"
+    for l in logs[-200:]:
+        html += f"<li>{l}</li>"
+    html += f"</ul><p><a href='/?token={DASHBOARD_TOKEN}'>Back</a></p>"
+    return HTMLResponse(html)
+
+@app.get("/actions", response_class=HTMLResponse)
+async def dashboard_actions(request: Request):
+    require_token(request)
+    html = "<h2>Actions</h2>"
+    html += "<form method='post' action='/actions_ban?token=%s'>Ban UID: <input name='uid'><button>Ban</button></form>" % DASHBOARD_TOKEN
+    html += "<form method='post' action='/actions_kick?token=%s'>Kick UID: <input name='uid'><button>Kick</button></form>" % DASHBOARD_TOKEN
+    html += f"<p><a href='/?token={DASHBOARD_TOKEN}'>Back</a></p>"
+    return HTMLResponse(html)
+
+@app.post("/actions_ban")
+async def actions_ban(uid: int = Form(...), request: Request = None):
+    require_token(request)
+    # schedule coroutine on bot loop
+    fut = asyncio.run_coroutine_threadsafe(api_global_ban(uid), bot.loop)
     try:
-        bot.run(TOKEN)
-    except Exception as e:
-        print(f"[main] bot crash: {e}")
+        fut.result(timeout=10)
+    except Exception:
+        pass
+    return RedirectResponse(url=f"/actions?token={DASHBOARD_TOKEN}", status_code=303)
 
+@app.post("/actions_kick")
+async def actions_kick(uid: int = Form(...), request: Request = None):
+    require_token(request)
+    fut = asyncio.run_coroutine_threadsafe(api_global_kick(uid), bot.loop)
+    try:
+        fut.result(timeout=10)
+    except Exception:
+        pass
+    return RedirectResponse(url=f"/actions?token={DASHBOARD_TOKEN}", status_code=303)
+
+# ------------- Dashboard API helpers (called on bot loop) -------------
+async def api_global_ban(uid: int):
+    # ban across guilds where permitted (skip owners)
+    for g in bot.guilds:
+        try:
+            if is_owner(uid):
+                continue
+            await g.ban(discord.Object(id=uid), reason="Global ban via dashboard")
+        except Exception:
+            pass
+    append_log({"time": datetime.now(timezone.utc).isoformat(), "event": "api_global_ban", "uid": uid})
+
+async def api_global_kick(uid: int):
+    for g in bot.guilds:
+        try:
+            m = g.get_member(uid)
+            if m:
+                await g.kick(m, reason="Global kick via dashboard")
+        except Exception:
+            pass
+    append_log({"time": datetime.now(timezone.utc).isoformat(), "event": "api_global_kick", "uid": uid})
+
+# ------------- Start FastAPI in thread -------------
+def run_api():
+    # uvicorn logs are verbose; keep default
+    uvicorn.run(app, host="0.0.0.0", port=WEB_PORT, log_level="info")
+
+api_thread = threading.Thread(target=run_api, daemon=True)
+
+# ------------- Main run -------------
+if __name__ == "__main__":
+    try:
+        api_thread.start()
+        print("[main] FastAPI dashboard started on thread")
+    except Exception as e:
+        print("[main] Failed to start API thread:", e)
+
+    # Run Discord bot (blocking)
+    while True:
+        try:
+            bot.run(DISCORD_TOKEN)
+        except Exception as e:
+            print("[main] Bot crash detected:", e)
+            try:
+                asyncio.run(asyncio.sleep(3))
+            except Exception:
+                pass
+            continue
