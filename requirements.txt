@@ -1,6 +1,7 @@
 discord.py
-python-dotenv
-psycopg2-binary
 fastapi
 uvicorn
 requests
+psycopg2-binary
+python-dotenv
+
