@@ -16,6 +16,13 @@ from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
 
+# --- FIX pour Python 3.13 : audioop supprimé ---
+import sys
+sys.modules["audioop"] = None
+
+import discord
+discord.opus.is_loaded = lambda: True
+# ------------------------------------------------
 # -----------------------------
 # CONFIG
 # -----------------------------
