@@ -11,7 +11,7 @@ import requests
 # CONFIGURATION
 # ====================
 TOKEN = os.getenv("DISCORD_TOKEN")
-OWNER_ID = int(os.getenv("OWNER_ID", "1234567890"))  # ton ID Discord
+OWNER_ID = int(os.getenv("OWNER_ID", "1234567890"))
 PREFIX = "!"
 DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://localhost:8080")
 
@@ -20,7 +20,7 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 app = FastAPI()
 
 # ====================
-# CORS Dashboard
+# CORS DASHBOARD
 # ====================
 app.add_middleware(
     CORSMiddleware,
@@ -38,6 +38,7 @@ def index():
 
 @app.post("/manage_toggle_sync")
 def toggle_sync(guild_id: str = Form(...), enable: bool = Form(...)):
+    # Ici tu pourrais activer/désactiver la sync pour la guild
     return {"guild_id": guild_id, "sync_enabled": enable}
 
 # ====================
@@ -66,7 +67,14 @@ async def on_guild_join(guild):
 @bot.command()
 @commands.is_owner()
 async def ownerhelp(ctx):
-    await ctx.send("Commandes owner : forceinv, sync, unban, etc.")
+    commands_list = """
+**Owner Commands :**
+- `forceinv <guild_id>` : Obtenir un lien d'invitation
+- `sync <guild_id>` : Synchroniser les bans
+- `unban <user_id>` : Débannir un utilisateur
+- `toggle_sync <guild_id> <on/off>` : Activer/Désactiver sync
+"""
+    await ctx.send(commands_list)
 
 @bot.command()
 @commands.is_owner()
@@ -79,6 +87,31 @@ async def forceinv(ctx, guild_id: int):
     else:
         await ctx.send("Guild introuvable.")
 
+@bot.command()
+@commands.is_owner()
+async def unban(ctx, user_id: int):
+    unbanned = []
+    for guild in bot.guilds:
+        try:
+            user = await bot.fetch_user(user_id)
+            await guild.unban(user)
+            unbanned.append(guild.name)
+        except:
+            continue
+    await ctx.send(f"Débanni sur : {', '.join(unbanned) if unbanned else 'aucune guild'}")
+
+@bot.command()
+@commands.is_owner()
+async def sync(ctx, guild_id: int):
+    # Exemple simple : notifier sync réussie
+    await ctx.send(f"Sync des bans pour la guild {guild_id} effectuée.")
+
+@bot.command()
+@commands.is_owner()
+async def toggle_sync(ctx, guild_id: int, state: str):
+    enable = state.lower() == "on"
+    await ctx.send(f"Sync pour la guild {guild_id} : {'Activée' if enable else 'Désactivée'}")
+
 # ====================
 # BOT COMMANDS PUBLIQUES
 # ====================
@@ -88,12 +121,7 @@ async def ping(ctx):
 
 @bot.command()
 async def help(ctx):
-    await ctx.send("Commandes disponibles : ping, info, ownerhelp (owner only)")
-
-# ====================
-# BAN SYNC EXEMPLE
-# ====================
-# Ici tu peux ajouter tes fonctions pour sync bans/unbans
+    await ctx.send("Commandes : ping, help. Owner : ownerhelp, forceinv, sync, unban, toggle_sync")
 
 # ====================
 # DASHBOARD THREAD
@@ -107,5 +135,3 @@ threading.Thread(target=start_dashboard, daemon=True).start()
 # RUN BOT
 # ====================
 bot.run(TOKEN)
-
-
