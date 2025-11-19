@@ -1,20 +1,11 @@
-# Discord bot
 discord.py==2.3.2
 aiohttp
 requests
-
-# Web dashboard FastAPI
 fastapi
 uvicorn[standard]
 python-multipart
 jinja2
-
-# Sécurité + outils
 pydantic
 cachetools
-
-# Pour les webhooks éventuels
 httpx
-
-# Event loop automatique (Railway)
 uvloop; sys_platform != "win32"
