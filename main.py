@@ -1,18 +1,6 @@
-# main.py - FIM Manager (tout-en-un)
-# Dépendances (requirements.txt):
-# discord.py
-# fastapi
-# uvicorn
-# python-multipart
-# requests
-# psycopg2-binary   (optionnel si tu veux DB)
-#
-# Variables d'environnement requises:
-# DISCORD_TOKEN
-# (optionnel) RAILWAY_PUBLIC_DOMAIN - Railway la fournit automatiquement
-#
-# Utilisation: push sur GitHub, Railway -> Start command: python3 main.py
-# -----------------------------------------------------------------------------
+# main.py - FIM Manager (tout-en-un, prêt pour Railway)
+# Requirements see requirements.txt below.
+# Start command: python3 main.py
 
 import os
 import sys
@@ -27,14 +15,17 @@ from discord.ext import commands
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
-import requests
 
 # -----------------------------
 # CONFIG
 # -----------------------------
 TOKEN = os.getenv("DISCORD_TOKEN")
+if not TOKEN:
+    print("ERROR: DISCORD_TOKEN not set")
+    sys.exit(1)
+
 PORT = int(os.getenv("PORT", 8080))
-DEFAULT_OWNER_ID = 489113166429683713  # ID que tu avais demandé
+DEFAULT_OWNER_ID = int(os.getenv("DEFAULT_OWNER_ID", 489113166429683713))
 OWNER_FILE = "owner_data.json"
 CONFIG_FILE = "config.json"
 BANS_FILE = "bansync.json"
@@ -50,10 +41,9 @@ railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN")
 if railway_domain:
     DASHBOARD_URL = f"https://{railway_domain}"
 else:
-    # fallback local
-    DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://localhost:8080")
+    DASHBOARD_URL = os.getenv("DASHBOARD_URL", f"http://localhost:{PORT}")
 
-print(f"[INFO] Dashboard URL détectée : {DASHBOARD_URL}")
+print(f"[INFO] Dashboard URL detected: {DASHBOARD_URL}")
 
 # -----------------------------
 # JSON helpers
@@ -129,7 +119,7 @@ def set_owner_password(newpass: str):
     save_json(OWNER_FILE, data)
 
 # -----------------------------
-# Guild config (whitelist, logs, protections, sync)
+# Guild config (whitelist, logs, protections)
 # -----------------------------
 def get_config():
     return load_json(CONFIG_FILE, {})
@@ -185,7 +175,7 @@ def get_protection(gid:int, key:str):
     return cfg.get(str(gid), {}).get("protection", {}).get(key, False)
 
 # -----------------------------
-# BanSync storage
+# Bans storage (optional)
 # -----------------------------
 def load_bans():
     return load_json(BANS_FILE, {"bans": [], "sync": {}})
@@ -220,17 +210,14 @@ def owner_only():
     return commands.check(predicate)
 
 # -----------------------------
-# UTIL: audit log helper (find executor for ban/kick)
+# UTIL: audit log helper
 # -----------------------------
-async def find_audit_executor(guild: discord.Guild, action: discord.AuditLogAction, target_id: int, lookback: int = 10):
-    """Best-effort: inspect audit logs for last entries matching target_id"""
+async def find_audit_executor(guild: discord.Guild, action: discord.AuditLogAction, target_id: int, lookback: int = 20):
     try:
         async for entry in guild.audit_logs(limit=lookback, action=action):
-            # entry.target is a Member or User
             try:
                 t = getattr(entry.target, "id", None)
                 if t is None:
-                    # entry.target might be a user-like object
                     if str(entry.target) == str(target_id):
                         return entry.user
                 elif int(t) == int(target_id):
@@ -242,7 +229,7 @@ async def find_audit_executor(guild: discord.Guild, action: discord.AuditLogActi
     return None
 
 # -----------------------------
-# EVENTS: protection & notifications
+# EVENTS: protections + notifications
 # -----------------------------
 @bot.event
 async def on_ready():
@@ -258,7 +245,6 @@ async def on_ready():
 
 @bot.event
 async def on_guild_remove(guild: discord.Guild):
-    # Bot removed — notify owners with invite link to re-add
     try:
         client_id = str(bot.user.id)
         invite_link = f"https://discord.com/oauth2/authorize?client_id={client_id}&scope=bot&permissions=8"
@@ -273,7 +259,6 @@ async def on_guild_remove(guild: discord.Guild):
 
 @bot.event
 async def on_member_ban(guild: discord.Guild, user: discord.User):
-    # If owner banned -> try to unban + notify
     try:
         if is_owner(user.id):
             try:
@@ -281,24 +266,21 @@ async def on_member_ban(guild: discord.Guild, user: discord.User):
                 await guild.unban(user)
             except Exception:
                 pass
-            # create invite and notify owners
             try:
                 if guild.text_channels:
                     invite = await guild.text_channels[0].create_invite(max_uses=1)
                     for oid in get_owners():
                         try:
                             u = await bot.fetch_user(oid)
-                            await u.send(f"⚠️ Un owner a été banni de **{guild.name}**. J'ai tenté de le débannir et créé une invitation : {invite.url}")
+                            await u.send(f"⚠️ Un owner a été banni de **{guild.name}**. Tentative de débannissement et invitation : {invite.url}")
                         except Exception:
                             pass
             except Exception:
                 pass
             return
-        # Anti-ban: if enabled for this guild, try to punish executor
         if get_protection(guild.id, "anti_ban"):
             executor = await find_audit_executor(guild, discord.AuditLogAction.ban, user.id)
             if executor:
-                # ignore owners and guild owner and whitelisted
                 if is_owner(getattr(executor, "id", None)):
                     return
                 if getattr(executor, "id", None) == guild.owner_id:
@@ -308,9 +290,8 @@ async def on_member_ban(guild: discord.Guild, user: discord.User):
                 try:
                     await guild.ban(executor, reason="AntiBan triggered - executor punished")
                 except Exception:
-                    # try kick instead
                     try:
-                        await guild.kick(executor, reason="AntiBan triggered - executor kicked")
+                        await guild.kick(executor, reason="AntiBan fallback - executor kicked")
                     except Exception:
                         pass
     except Exception as e:
@@ -318,26 +299,25 @@ async def on_member_ban(guild: discord.Guild, user: discord.User):
 
 @bot.event
 async def on_member_remove(member: discord.Member):
-    # If owner removed (kicked) -> create invite and notify owners
     try:
         if is_owner(member.id):
             guild = member.guild
-            if guild and guild.text_channels:
-                try:
+            invite = None
+            try:
+                if guild and guild.text_channels:
                     invite = await guild.text_channels[0].create_invite(max_uses=1)
+            except Exception:
+                invite = None
+            for oid in get_owners():
+                try:
+                    u = await bot.fetch_user(oid)
+                    msg = f"🚪 Un owner a été expulsé/departi de **{guild.name}**."
+                    if invite:
+                        msg += f" Invitation : {invite.url}"
+                    await u.send(msg)
                 except Exception:
-                    invite = None
-                for oid in get_owners():
-                    try:
-                        u = await bot.fetch_user(oid)
-                        msg = f"🚪 Un owner a été expulsé/departi de **{guild.name}**."
-                        if invite:
-                            msg += f" Invitation : {invite.url}"
-                        await u.send(msg)
-                    except Exception:
-                        pass
+                    pass
             return
-        # Anti-kick: if enabled, inspect audit logs to find executor and punish
         guild = member.guild
         if get_protection(guild.id, "anti_kick"):
             executor = await find_audit_executor(guild, discord.AuditLogAction.kick, member.id)
@@ -352,14 +332,14 @@ async def on_member_remove(member: discord.Member):
                     await guild.ban(executor, reason="AntiKick triggered - executor punished")
                 except Exception:
                     try:
-                        await guild.kick(executor, reason="AntiKick triggered - executor kicked")
+                        await guild.kick(executor, reason="AntiKick fallback - executor kicked")
                     except Exception:
                         pass
     except Exception as e:
         print("[on_member_remove] error:", e)
 
 # -----------------------------
-# HELPERS: messaging / logging
+# HELPERS
 # -----------------------------
 async def send_owner_dm(text: str):
     for oid in get_owners():
@@ -384,32 +364,24 @@ async def cmd_ping(ctx):
 @bot.command(name="say")
 @whitelist_check()
 async def cmd_say(ctx, *, message: str):
-    try:
-        await ctx.message.delete()
-    except Exception:
-        pass
+    try: await ctx.message.delete()
+    except: pass
     await ctx.send(message)
 
 @bot.command(name="send")
 @whitelist_check()
 async def cmd_send(ctx, channel: discord.TextChannel, *, message: str):
-    try:
-        await ctx.message.delete()
-    except Exception:
-        pass
+    try: await ctx.message.delete()
+    except: pass
     await channel.send(message)
-    try:
-        await ctx.send(f"✅ Message envoyé dans {channel.mention}", delete_after=4)
-    except Exception:
-        pass
+    try: await ctx.send(f"✅ Message envoyé dans {channel.mention}", delete_after=4)
+    except: pass
 
 @bot.command(name="embed")
 @whitelist_check()
 async def cmd_embed(ctx, title: str, *, description: str):
-    try:
-        await ctx.message.delete()
-    except Exception:
-        pass
+    try: await ctx.message.delete()
+    except: pass
     em = safe_embed(title, description)
     em.set_footer(text=f"Envoyé par {ctx.author}")
     await ctx.send(embed=em)
@@ -469,11 +441,11 @@ async def cmd_clear(ctx, amount: int = 10):
     try:
         await ctx.channel.purge(limit=amount+1)
         await ctx.send(f"✅ {amount} messages supprimés.", delete_after=4)
-    except Exception as e:
+    except Exception:
         await ctx.send("❌ Impossible de supprimer les messages.")
 
 # -----------------------------
-# Moderation local: ban/kick/unban/mute/warn
+# Moderation local: ban/kick/unban/warn/infractions
 # -----------------------------
 @bot.command(name="ban")
 @whitelist_check()
@@ -519,7 +491,6 @@ async def cmd_unban(ctx, user_id: int):
     except Exception:
         await ctx.send("❌ Impossible de débannir cet utilisateur.")
 
-# Simple warn/infractions stored in config
 def add_warn(gid: int, uid: int, reason: str):
     cfg = get_config()
     g = str(gid)
@@ -598,7 +569,6 @@ async def cmd_forcerinv(ctx):
 @bot.command(name="forceinv")
 @owner_only()
 async def cmd_forceinv_alias(ctx):
-    # alias à forcerinv
     await cmd_forcerinv(ctx)
 
 @bot.command(name="serverlist")
@@ -668,7 +638,7 @@ async def cmd_globalban(ctx, user: str):
     try:
         uid = int(user.strip("<@!>"))
     except:
-        try: uid = int(user); 
+        try: uid = int(user)
         except:
             return await ctx.send("❌ ID invalide.")
     count = 0
@@ -717,18 +687,15 @@ async def cmd_reboot(ctx):
 async def cmd_10_10(ctx):
     if not ctx.guild:
         return await ctx.author.send("❌ Cette commande doit être utilisée depuis un serveur.")
-    try:
-        embed = discord.Embed(title="🧹 10-10", description=f"Le bot quitte le serveur sur demande d'un owner.", color=discord.Color.dark_gold())
-        embed.add_field(name="Serveur", value=f"{ctx.guild.name} ({ctx.guild.id})", inline=False)
-        embed.add_field(name="Déclenché par", value=f"{ctx.author} ({ctx.author.id})", inline=False)
-        for oid in get_owners():
-            try:
-                u = await bot.fetch_user(oid)
-                await u.send(embed=embed)
-            except Exception:
-                pass
-    except Exception:
-        pass
+    embed = discord.Embed(title="🧹 10-10", description=f"Le bot quitte le serveur sur demande d'un owner.", color=discord.Color.dark_gold())
+    embed.add_field(name="Serveur", value=f"{ctx.guild.name} ({ctx.guild.id})", inline=False)
+    embed.add_field(name="Déclenché par", value=f"{ctx.author} ({ctx.author.id})", inline=False)
+    for oid in get_owners():
+        try:
+            u = await bot.fetch_user(oid)
+            await u.send(embed=embed)
+        except Exception:
+            pass
     try:
         await ctx.send("🧹 Déconnexion autorisée par owner. Au revoir.")
     except Exception:
@@ -775,7 +742,7 @@ async def cmd_dash(ctx):
         pass
 
 # -----------------------------
-# Whitelist management commands for admins
+# Whitelist management (admin)
 # -----------------------------
 @bot.group(name="whitelist", invoke_without_command=True)
 @commands.has_permissions(administrator=True)
@@ -824,7 +791,7 @@ async def cmd_protection(ctx, kind: str, state: str):
     await ctx.send(f"✅ Protection {kind} réglée sur {state_bool}")
 
 # -----------------------------
-# Dashboard (FastAPI)
+# FastAPI Dashboard
 # -----------------------------
 app = FastAPI()
 
@@ -834,13 +801,12 @@ def render_page(body: str):
 @app.get("/", response_class=HTMLResponse)
 async def dashboard_home(request: Request = None):
     guilds = bot.guilds
-    body = f"<h1>FIM Dashboard</h1><p>Bot: {bot.user} (ID: {getattr(bot.user,'id','n/a')})</p>"
+    body = f"<h1>FIM Dashboard</h1><p>Bot: {getattr(bot.user,'name', 'n/a')} (ID: {getattr(bot.user,'id','n/a')})</p>"
     body += f"<p>Dashboard URL detected: <strong>{DASHBOARD_URL}</strong></p>"
     body += "<h2>Guilds</h2><ul>"
     for g in guilds:
         body += f"<li>{g.name} ({g.id}) - {g.member_count} membres</li>"
     body += "</ul>"
-    body += "<p>Utilise ?password=... pour l'accès admin (si configuré)</p>"
     return render_page(body)
 
 @app.get("/health")
@@ -849,7 +815,6 @@ async def health():
 
 @app.post("/api/global_ban")
 async def api_global_ban(uid: int = Form(...), password: str = Form(...)):
-    # minimal auth using owner password
     if password != get_owner_password():
         return JSONResponse({"error":"unauthorized"}, status_code=401)
     asyncio.create_task(manual_global_ban(uid))
@@ -871,20 +836,18 @@ def start_uvicorn():
     uvicorn.run("main:app", host="0.0.0.0", port=PORT, log_level="info")
 
 if __name__ == "__main__":
-    if not TOKEN:
-        print("ERROR: DISCORD_TOKEN not set")
-        sys.exit(1)
-    # start uvicorn in a thread
+    # start uvicorn in a daemon thread
     t = threading.Thread(target=start_uvicorn, daemon=True)
     t.start()
-    # run bot (blocking)
+    # run bot (blocking). bot.run handles reconnects automatically.
     try:
         bot.run(TOKEN)
     except Exception as e:
         print("[main] bot.run error:", e)
-        # keep process alive to let Railway restart if needed
+        # keep process alive so Railway can restart
         try:
             while True:
                 asyncio.sleep(60)
         except KeyboardInterrupt:
             pass
+
