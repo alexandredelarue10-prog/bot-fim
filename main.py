@@ -1268,50 +1268,19 @@ def is_staff(ctx):
 # --------------------------------------------
 # HELP COMMANDS
 # --------------------------------------------
-    @bot.command(name="aide")
+   @bot.command(name="aide")
 async def aide_command(ctx):
     embed = discord.Embed(
-        title="🛠 Commandes du Bot",
-        description="Voici toutes les commandes disponibles selon vos permissions :",
-        color=discord.Color.blue()
+        title="📖 Commandes disponibles",
+        description="Voici les commandes du bot :",
+        color=discord.Color.green()
     )
 
-    # --- Fun ---
-    embed.add_field(
-        name="🎉 Fun",
-        value=(
-            "!joke - Raconte une blague\n"
-            "!meme - Envoie un meme aléatoire\n"
-            "!roll - Lance un dé\n"
-            "!8ball - Pose une question magique"
-        ),
-        inline=False
-    )
+    embed.add_field(name="🎉 Fun", value="!blague, !meme", inline=False)
+    embed.add_field(name="🛠️ Modération", value="!kick, !ban, !mute", inline=False)
+    embed.add_field(name="🔒 Propriétaire", value="!serverlist, !ownerhelp", inline=False)
 
-    # --- Modération ---
-    embed.add_field(
-        name="🛡 Modération (Whitelist ou Owner requis)",
-        value=(
-            "!ban @user [raison] - Bannir un membre\n"
-            "!kick @user [raison] - Expulser un membre\n"
-            "!mute @user [durée] - Rendre muet un membre\n"
-            "!unmute @user - Réactiver la parole"
-        ),
-        inline=False
-    )
-
-    # --- Owner Commands ---
-    if ctx.author.id == OWNER_ID:  # <--- Remplace OWNER_ID par ton ID
-        embed.add_field(
-            name="👑 Owner Commands",
-            value=(
-                "!serverlist - Liste tous les serveurs et permet de réinviter le bot\n"
-                "!shutdown - Éteint le bot\n"
-                "!restart - Redémarre le bot\n"
-                "!eval [code] - Évaluer du code Python"
-            ),
-            inline=False
-        )
+    await ctx.send(embed=embed)
 
     # --- Protection ---
     embed.add_field(
