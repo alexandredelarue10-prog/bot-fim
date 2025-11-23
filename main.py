@@ -23,7 +23,8 @@ PREFIX = "!"
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
-bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
+bot = commands.Bot(command_prefix="!", help_command=None)
+
 
 DB_NAME = "bot_data.sqlite"
 
