@@ -1037,8 +1037,8 @@ async def cmd_exportlogs(ctx, guild_id: int = None):
         traceback.print_exc()
         await ctx.send("Erreur lors de l'export des logs.")
 
-@bot.command(name="help")
-async def help_command(ctx):
+@bot.command(name="aide")
+async def cmd_aide(ctx):
     embed = discord.Embed(
         title="🛠 Commandes du Bot",
         description="Voici toutes les commandes disponibles selon vos permissions :",
