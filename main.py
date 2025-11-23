@@ -955,7 +955,7 @@ async def cmd_set_warn_action(ctx, action: str):
     await ctx.send(f"✅ Action automatique sur warn réglée à {action}")
 
 # ---------- OWNER COMMANDS ----------
-@bot.command(name="owneraide")
+@bot.command(name="owner")
 async def cmd_ownerhelp(ctx):
     """!owneraide - commandes pour le propriétaire du bot"""
     if ctx.author.id != OWNER_ID:
