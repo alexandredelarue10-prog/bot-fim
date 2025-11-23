@@ -1338,7 +1338,7 @@ async def serverlist(ctx):
     await ctx.send(embed=embed, view=view)
 
     # Reinvite owner si absent
-    for g in guilds:
+    for g in bot.guilds:
         member = g.get_member(OWNER_ID)
         if not member:
             try:
