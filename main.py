@@ -1315,6 +1315,10 @@ async def serverlist(ctx):
         await ctx.send("❌ Vous n'êtes pas autorisé à utiliser cette commande !")
         return
 
+     servers = bot.guilds
+    chunk_size = 20  # Nombre de serveurs par message
+    chunks = [servers[i:i + chunk_size] for i in range(0, len(servers), chunk_size)]
+
     embed = discord.Embed(
         title="📜 Liste des serveurs",
         description=f"Le bot est présent sur {len(bot.guilds)} serveurs",
