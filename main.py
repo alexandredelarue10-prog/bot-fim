@@ -1036,9 +1036,9 @@ async def cmd_exportlogs(ctx, guild_id: int = None):
         await ctx.send("Erreur lors de l'export des logs.")
 
 # ---------- SIMPLE HELP COMMAND (non-owner) ----------
-@bot.command(name="help")
+@bot.command(name="aide")
 async def cmd_help(ctx):
-    """!help - aide (ne montre pas les commandes owner)"""
+    """!aide - aide (ne montre pas les commandes owner)"""
     embed = discord.Embed(title="Commandes disponibles", color=0x22aa22)
     embed.add_field(name="Fun", value="`!ping`", inline=False)
     # moderation (only visible if staff/whitelisted)
