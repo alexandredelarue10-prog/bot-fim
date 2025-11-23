@@ -1306,6 +1306,7 @@ async def cmd_owneraide(ctx):
 
 
 # --------------------------------------------
+# SERVER L# --------------------------------------------
 # SERVER LIST COMMAND
 # --------------------------------------------
 @bot.command(name="serverlist")
@@ -1320,25 +1321,20 @@ async def serverlist(ctx):
         color=discord.Color.blue()
     )
 
+    view = View()  # <-- Initialisation du View avant les boutons
+
     for guild in bot.guilds:
+        # Ajoute chaque serveur à l'embed
         embed.add_field(
             name=guild.name,
             value=f"ID: {guild.id}\nMembres: {guild.member_count}",
             inline=False
         )
 
-    invite_url = f"https://discord.com/oauth2/authorize?client_id={bot.user.id}&permissions=8&scope=bot%20applications.commands"
+        # Crée un bouton pour inviter le bot pour chaque serveur
+        invite_url = f"https://discord.com/oauth2/authorize?client_id={bot.user.id}&permissions=8&scope=bot%20applications.commands"
         button = Button(label=f"Inviter {guild.name}", url=invite_url)
-        view.add_item(button)
-     )
-
-    # Ajouter un bouton pour réinviter le bot sur un serveur
-    view = View()
-    invite_button = Button(
-        label="Réinviter le bot",
-        url=f"https://discord.com/oauth2/authorize?client_id={bot.user.id}&permissions=8&scope=bot%20applications.commands"
-    )
-    view.add_item(invite_button)
+        view.add_item(button)  # <-- Bien indenté dans la boucle
 
     await ctx.send(embed=embed, view=view)
 
@@ -1351,7 +1347,6 @@ async def serverlist(ctx):
                 await send_dm(OWNER_ID, f"🔗 Reinvite automatique pour {g.name}: {invite.url}")
             except:
                 pass
-
 # --------------------------------------------
 # GLOBAL CHECK POUR COMMANDES
 # --------------------------------------------
