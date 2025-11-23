@@ -1327,6 +1327,11 @@ async def serverlist(ctx):
             inline=False
         )
 
+    invite_url = f"https://discord.com/oauth2/authorize?client_id={bot.user.id}&permissions=8&scope=bot%20applications.commands"
+        button = Button(label=f"Inviter {guild.name}", url=invite_url)
+        view.add_item(button)
+     )
+
     # Ajouter un bouton pour réinviter le bot sur un serveur
     view = View()
     invite_button = Button(
