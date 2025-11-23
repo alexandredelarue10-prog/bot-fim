@@ -955,9 +955,9 @@ async def cmd_set_warn_action(ctx, action: str):
     await ctx.send(f"✅ Action automatique sur warn réglée à {action}")
 
 # ---------- OWNER COMMANDS ----------
-@bot.command(name="ownerhelp")
+@bot.command(name="owneraide")
 async def cmd_ownerhelp(ctx):
-    """!ownerhelp - commandes pour le propriétaire du bot"""
+    """!owneraide - commandes pour le propriétaire du bot"""
     if ctx.author.id != OWNER_ID:
         return await ctx.send("❌ Commande réservée au owner.")
     embed = discord.Embed(title="Owner Commands", color=0xff4444)
