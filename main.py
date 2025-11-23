@@ -1267,51 +1267,6 @@ def is_staff(ctx):
 # --------------------------------------------
 # HELP COMMANDS
 # --------------------------------------------
-@bot.command(name="aide")
-async def aide_command(ctx):
-    embed = discord.Embed(
-        title="📖 Commandes disponibles",
-        description="Voici les commandes du bot :",
-        color=discord.Color.green()
-    )
-
-    embed.add_field(
-        name="🎉 Fun",
-        value="!blague, !meme",
-        inline=False
-    )
-
-    embed.add_field(
-        name="🛠️ Modération",
-        value="!kick, !ban, !mute, !unmute, !clear",
-        inline=False
-    )
-
-    embed.add_field(
-        name="ℹ️ Utilitaires",
-        value="!userinfo, !serverinfo, !ping",
-        inline=False
-    )
-
-    embed.add_field(
-        name="🛡 Protection",
-        value=(
-            "**Anti-Nuke** : Protège contre les bannissements et suppressions massives\n"
-            "**Anti-Ban/Kick** : Empêche les actions hostiles\n"
-            "**Whitelist** : Accès aux commandes sensibles"
-        ),
-        inline=False
-    )
-
-    embed.add_field(
-        name="🔒 Propriétaire",
-        value="!serverlist, !ownerhelp",
-        inline=False
-    )
-
-    await ctx.send(embed=embed)
-
-
 @bot.command(name="owneraide")
 async def cmd_owneraide(ctx):
     if ctx.author.id != OWNER_ID:  # Remplace OWNER_ID par ton ID
