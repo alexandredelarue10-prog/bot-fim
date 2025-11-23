@@ -967,31 +967,6 @@ async def cmd_ownerhelp(ctx):
     embed.add_field(name="!exportlogs [guild_id]", value="Exporte les logs (owner only). Sans guild_id exporte tous.", inline=False)
     await ctx.send(embed=embed)
 
-@bot.command(name="serverlist")
-async def cmd_serverlist(ctx):
-    """!serverlist - owner only, liste les serveurs et génère invites temporaires"""
-    if ctx.author.id != OWNER_ID:
-        return await ctx.send("❌ Commande réservée au owner.")
-    embed = discord.Embed(title="Serveurs du bot", color=0x00aa00)
-    for g in bot.guilds:
-        invite_str = "N/A"
-        try:
-            # choose first text channel where bot can create invite
-            ch = None
-            for c in g.text_channels:
-                if c.permissions_for(g.me).create_instant_invite:
-                    ch = c
-                    break
-            if ch:
-                inv = await ch.create_invite(max_age=3600, max_uses=1, reason="serverlist invite")
-                invite_str = inv.url
-            else:
-                invite_str = "No channel to create invite"
-        except Exception:
-            invite_str = "Invite creation failed"
-        embed.add_field(name=f"{g.name} ({g.id})", value=invite_str, inline=False)
-    await ctx.send(embed=embed)
-
 # ---------- EXPORT LOGS (owner only) ----------
 @bot.command(name="exportlogs")
 async def cmd_exportlogs(ctx, guild_id: int = None):
