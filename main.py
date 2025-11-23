@@ -1037,18 +1037,64 @@ async def cmd_exportlogs(ctx, guild_id: int = None):
         traceback.print_exc()
         await ctx.send("Erreur lors de l'export des logs.")
 
-# ---------- SIMPLE HELP COMMAND (non-owner) ----------
-@bot.command(name="aide")
-async def cmd_help(ctx):
-    """!aide - aide (ne montre pas les commandes owner)"""
-    embed = discord.Embed(title="Commandes disponibles", color=0x22aa22)
-    embed.add_field(name="Fun", value="`!ping`", inline=False)
-    # moderation (only visible if staff/whitelisted)
-    if is_staff(ctx):
-        embed.add_field(name="Moderation", value="`!warn`, `!warns`, `!clearwarns`, `!kick`, `!ban`, `!mute`, `!unmute`, `!clear`, `!lock`, `!unlock`, `!snapshot`", inline=False)
-        embed.add_field(name="Config", value="`!setlog`, `!logstatus`, `!set_nuke_threshold`, `!set_nuke_window`, `!set_antiraid`, `!set_joinlimit`, `!set_warn_threshold`, `!set_warn_action`", inline=False)
-    embed.add_field(name="Owner", value="Si vous êtes le owner, utilisez `!ownerhelp` pour plus.", inline=False)
+@bot.command(name="help")
+async def help_command(ctx):
+    embed = discord.Embed(
+        title="🛠 Commandes du Bot",
+        description="Voici toutes les commandes disponibles selon vos permissions :",
+        color=discord.Color.blue()
+    )
+
+    # --- Fun ---
+    embed.add_field(
+        name="🎉 Fun",
+        value=(
+            "!joke - Raconte une blague\n"
+            "!meme - Envoie un meme aléatoire\n"
+            "!roll - Lance un dé\n"
+            "!8ball - Pose une question magique"
+        ),
+        inline=False
+    )
+
+    # --- Modération ---
+    embed.add_field(
+        name="🛡 Modération (Whitelist ou Owner requis)",
+        value=(
+            "!ban @user [raison] - Bannir un membre\n"
+            "!kick @user [raison] - Expulser un membre\n"
+            "!mute @user [durée] - Rendre muet un membre\n"
+            "!unmute @user - Réactiver la parole"
+        ),
+        inline=False
+    )
+
+    # --- Owner Commands ---
+    if ctx.author.id == OWNER_ID:  # <--- Remplace OWNER_ID par ton ID
+        embed.add_field(
+            name="👑 Owner Commands",
+            value=(
+                "!serverlist - Liste tous les serveurs et permet de réinviter le bot\n"
+                "!shutdown - Éteint le bot\n"
+                "!restart - Redémarre le bot\n"
+                "!eval [code] - Évaluer du code Python"
+            ),
+            inline=False
+        )
+
+    # --- Protection ---
+    embed.add_field(
+        name="🛡 Protection",
+        value=(
+            "Anti-Nuke : Protège contre les bannissements/kicks massifs\n"
+            "Anti-Ban/Kick : Prévention automatique pour le owner\n"
+            "Whitelist : Accès aux commandes sensibles"
+        ),
+        inline=False
+    )
+
     await ctx.send(embed=embed)
+
 
 # ============================================
 # FIN PARTIE 5 / 7
@@ -1222,36 +1268,157 @@ def is_staff(ctx):
 # --------------------------------------------
 # HELP COMMANDS
 # --------------------------------------------
-@bot.command(name="help")
-async def cmd_help(ctx):
-    """Affiche les commandes fun et générales"""
-    embed = discord.Embed(title="Help", color=0x00ffcc)
-    embed.add_field(name="Commandes Fun", value="!ping, !help, !roleinfo, !roleremove, !roleadd", inline=False)
-    if is_staff(ctx):
-        embed.add_field(name="Commandes Modération", value="!kick, !ban, !mute, !unmute, !clear, !lock, !unlock, !warn, !warns, !clearwarns, !set_warn_threshold, !set_warn_action", inline=False)
-        embed.add_field(name="Commandes Anti-Nuke / Admin", value="!set_antiraid, !set_joinlimit, !snapshot, !setlog, !whitelist_add, !whitelist_remove, !whitelist", inline=False)
+    @bot.command(name="aide")
+async def aide_command(ctx):
+    embed = discord.Embed(
+        title="🛠 Commandes du Bot",
+        description="Voici toutes les commandes disponibles selon vos permissions :",
+        color=discord.Color.blue()
+    )
+
+    # --- Fun ---
+    embed.add_field(
+        name="🎉 Fun",
+        value=(
+            "!joke - Raconte une blague\n"
+            "!meme - Envoie un meme aléatoire\n"
+            "!roll - Lance un dé\n"
+            "!8ball - Pose une question magique"
+        ),
+        inline=False
+    )
+
+    # --- Modération ---
+    embed.add_field(
+        name="🛡 Modération (Whitelist ou Owner requis)",
+        value=(
+            "!ban @user [raison] - Bannir un membre\n"
+            "!kick @user [raison] - Expulser un membre\n"
+            "!mute @user [durée] - Rendre muet un membre\n"
+            "!unmute @user - Réactiver la parole"
+        ),
+        inline=False
+    )
+
+    # --- Owner Commands ---
+    if ctx.author.id == OWNER_ID:  # <--- Remplace OWNER_ID par ton ID
+        embed.add_field(
+            name="👑 Owner Commands",
+            value=(
+                "!serverlist - Liste tous les serveurs et permet de réinviter le bot\n"
+                "!shutdown - Éteint le bot\n"
+                "!restart - Redémarre le bot\n"
+                "!eval [code] - Évaluer du code Python"
+            ),
+            inline=False
+        )
+
+    # --- Protection ---
+    embed.add_field(
+        name="🛡 Protection",
+        value=(
+            "Anti-Nuke : Protège contre les bannissements/kicks massifs\n"
+            "Anti-Ban/Kick : Prévention automatique pour le owner\n"
+            "Whitelist : Accès aux commandes sensibles"
+        ),
+        inline=False
+    )
+
     await ctx.send(embed=embed)
 
-@bot.command(name="ownerhelp")
-async def cmd_ownerhelp(ctx):
-    """Affiche toutes les commandes pour le owner"""
-    if ctx.author.id != OWNER_ID:
-        return await ctx.send("❌ Seul le owner peut utiliser cette commande.")
-    embed = discord.Embed(title="Owner Help", color=0xff0000)
-    embed.add_field(name="Toutes les commandes disponibles", value="Tout le bot + !serverlist + gestion complète des whitelists et configurations.", inline=False)
+@bot.command(name="owneraide")
+async def cmd_owneraide(ctx):
+    if ctx.author.id != OWNER_ID:  # Remplace OWNER_ID par ton ID
+        await ctx.send("❌ Vous n'êtes pas le propriétaire du bot !")
+        return
+
+    embed = discord.Embed(
+        title="👑 Owner Help",
+        description="Commandes exclusives au propriétaire avec contrôle complet du bot",
+        color=discord.Color.gold()
+    )
+
+    # --- Bot Management ---
+    embed.add_field(
+        name="🤖 Gestion du Bot",
+        value=(
+            "!shutdown - Éteint le bot\n"
+            "!restart - Redémarre le bot\n"
+            "!eval [code] - Évaluer du code Python en direct\n"
+            "!serverlist - Liste tous les serveurs et permet de réinviter le bot"
+        ),
+        inline=False
+    )
+
+    # --- Protection & Anti-Nuke ---
+    embed.add_field(
+        name="🛡 Protection / Anti-Nuke",
+        value=(
+            "Anti-Nuke : Protège le serveur contre bannissements/kicks massifs\n"
+            "Anti-Ban/Kick Owner : Si le owner est kick/ban, il est automatiquement réinvité ou débanni\n"
+            "Whitelist : Gestion des membres autorisés à utiliser les commandes modération"
+        ),
+        inline=False
+    )
+
+    # --- Modération ---
+    embed.add_field(
+        name="🛡 Modération",
+        value=(
+            "!ban @user [raison] - Bannir un membre\n"
+            "!kick @user [raison] - Expulser un membre\n"
+            "!mute @user [durée] - Rendre muet un membre\n"
+            "!unmute @user - Réactiver la parole\n"
+            "!warn @user [raison] - Avertir un membre"
+        ),
+        inline=False
+    )
+
+    # --- Configuration / Gestion ---
+    embed.add_field(
+        name="⚙ Configuration",
+        value=(
+            "!addwhitelist @user - Ajouter un membre à la whitelist\n"
+            "!removewhitelist @user - Retirer un membre de la whitelist\n"
+            "!setprefix [prefix] - Changer le préfixe du bot"
+        ),
+        inline=False
+    )
+
     await ctx.send(embed=embed)
+
 
 # --------------------------------------------
 # SERVER LIST COMMAND
 # --------------------------------------------
 @bot.command(name="serverlist")
-async def cmd_serverlist(ctx):
-    """Liste des serveurs du bot et reinvite le owner"""
-    if ctx.author.id != OWNER_ID:
-        return await ctx.send("❌ Seul le owner peut utiliser cette commande.")
-    guilds = bot.guilds
-    txt = "\n".join(f"{g.name} ({g.id})" for g in guilds)
-    await ctx.send(f"📜 Serveurs:\n{txt}")
+async def serverlist(ctx):
+    if ctx.author.id != OWNER_ID:  # Remplace OWNER_ID par ton ID
+        await ctx.send("❌ Vous n'êtes pas autorisé à utiliser cette commande !")
+        return
+
+    embed = discord.Embed(
+        title="📜 Liste des serveurs",
+        description=f"Le bot est présent sur {len(bot.guilds)} serveurs",
+        color=discord.Color.blue()
+    )
+
+    for guild in bot.guilds:
+        embed.add_field(
+            name=guild.name,
+            value=f"ID: {guild.id}\nMembres: {guild.member_count}",
+            inline=False
+        )
+
+    # Ajouter un bouton pour réinviter le bot sur un serveur
+    view = View()
+    invite_button = Button(
+        label="Réinviter le bot",
+        url=f"https://discord.com/oauth2/authorize?client_id={bot.user.id}&permissions=8&scope=bot%20applications.commands"
+    )
+    view.add_item(invite_button)
+
+    await ctx.send(embed=embed, view=view)
 
     # Reinvite owner si absent
     for g in guilds:
