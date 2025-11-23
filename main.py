@@ -18,7 +18,7 @@ from datetime import datetime
 # ============================================
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-OWNER_ID = int(os.getenv("OWNER_ID", "0"))
+OWNER_ID = int(os.getenv("OWNER_ID", "489113166429683713"))
 PREFIX = "!"
 
 intents = discord.Intents.all()
