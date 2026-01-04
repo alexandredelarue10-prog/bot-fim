@@ -907,7 +907,7 @@ async def cmd_set_nuke_window(ctx, seconds: int):
     if not is_staff(ctx):
         return await ctx.send("❌ Vous n'avez pas la permission.")
     cfg = load_config(ctx.guild.id)
-    cfg["join_window"] = max(1, seconds)  # using join_window entry as generic time-window
+    cfg["nuke_window"] = max(1, seconds)  # using join_window entry as generic time-window
     save_config(ctx.guild.id, cfg)
     await ctx.send(f"✅ Fenêtre temporelle anti-nuke réglée à {cfg['join_window']} secondes.")
 
