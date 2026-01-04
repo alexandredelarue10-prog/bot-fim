@@ -167,15 +167,17 @@ def remove_whitelist(guild_id, user_id):
 def ts():
     return int(datetime.utcnow().timestamp())
 
-def is_staff(ctx):
-    """Autorisé à modérer si Owner, Admin, ou Whitelist."""
+def is_staff(ctx) -> bool:
+    """
+    Retourne True si l'utilisateur est owner ou whitelist
+    """
+    if not ctx.guild:
+        return False
+
     if ctx.author.id == OWNER_ID:
         return True
-    if ctx.author.guild_permissions.administrator:
-        return True
-    if is_whitelisted(ctx.guild.id, ctx.author.id):
-        return True
-    return False
+
+    return ctx.author.id in list_whitelist(ctx.guild.id)
 
 # ============================================
 # PARTIE 2 / 7
