@@ -1305,42 +1305,32 @@ async def cmd_owneraide(ctx):
 # --------------------------------------------
 @bot.command(name="serverlist")
 async def serverlist(ctx):
-    if ctx.author.id != OWNER_ID:  # Remplace OWNER_ID par ton ID
-        await ctx.send("❌ Vous n'êtes pas autorisé à utiliser cette commande !")
-        return
-     
+    if ctx.author.id != OWNER_ID:
+        return await ctx.send("❌ Accès owner uniquement.")
+
     embed = discord.Embed(
-        title="📜 Liste des serveurs",
-        description=f"Le bot est présent sur {len(bot.guilds)} serveurs",
+        title="📜 Serveurs du bot",
+        description=f"{len(bot.guilds)} serveurs",
         color=discord.Color.blue()
     )
 
-    view = View()  # <-- Initialisation du View avant les boutons
+    view = View()
 
-    for guild in bot.guilds:
-        # Ajoute chaque serveur à l'embed
+    for i, guild in enumerate(bot.guilds[:25]):  # LIMITE DISCORD
         embed.add_field(
             name=guild.name,
-            value=f"ID: {guild.id}\nMembres: {guild.member_count}",
+            value=f"ID: {guild.id} | Membres: {guild.member_count}",
             inline=False
         )
 
-        # Crée un bouton pour inviter le bot pour chaque serveur
-        invite_url = f"https://discord.com/oauth2/authorize?client_id={bot.user.id}&permissions=8&scope=bot%20applications.commands"
-        button = Button(label=f"Inviter {guild.name}", url=invite_url)
-        view.add_item(button)  # <-- Bien indenté dans la boucle
+    invite_url = (
+        f"https://discord.com/oauth2/authorize?"
+        f"client_id={bot.user.id}&permissions=8&scope=bot%20applications.commands"
+    )
 
+    view.add_item(Button(label="➕ Inviter le bot", url=invite_url))
     await ctx.send(embed=embed, view=view)
 
-    # Reinvite owner si absent
-    for g in bot.guilds:
-        member = g.get_member(OWNER_ID)
-        if not member:
-            try:
-                invite = await g.text_channels[0].create_invite(max_age=0, reason="Reinvite owner")
-                await send_dm(OWNER_ID, f"🔗 Reinvite automatique pour {g.name}: {invite.url}")
-            except:
-                pass
 # --------------------------------------------
 # GLOBAL CHECK POUR COMMANDES
 # --------------------------------------------
