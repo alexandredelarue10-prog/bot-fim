@@ -1233,12 +1233,6 @@ async def send_dm(user_id, content):
 # --------------------------------------------
 # FONCTIONS D’AIDE INTERNES
 # --------------------------------------------
-def is_staff(ctx):
-    """Vérifie si l’utilisateur est whitelisté ou owner"""
-    if ctx.author.id == OWNER_ID:
-        return True
-    wl = list_whitelist(ctx.guild.id)
-    return ctx.author.id in wl
 
 # --------------------------------------------
 # HELP COMMANDS
