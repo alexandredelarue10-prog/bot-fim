@@ -1356,7 +1356,6 @@ async def global_command_check(ctx):
 # --------------------------------------------
 # ON_READY FINAL
 # --------------------------------------------
-@bot.event
     init_db()
     print(f"🤖 Bot prêt: {bot.user} (ID: {bot.user.id})")
     for guild in bot.guilds:
