@@ -377,7 +377,16 @@ async def on_member_join(member):
 # ============================================
 
 # In-memory tracker déjà déclaré en PARTIE 2:
-# action_trackers = {}  # {guild_id: {executor_id: {"ban":[], "kick":[], "channel_del":[], "role_del":[]}}}
+action_trackers = {}  
+# {guild_id: {executor_id: {
+#   "ban":[], 
+#   "kick":[], 
+#   "channel_del":[], 
+#   "role_del":[],
+#   "role_add_member":[],
+#   "role_remove_member":[]
+# }}}
+
 
 def ensure_action_tracker(guild_id, executor_id):
     g = action_trackers.setdefault(guild_id, {})
