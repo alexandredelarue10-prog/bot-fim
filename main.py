@@ -390,7 +390,14 @@ action_trackers = {}
 
 def ensure_action_tracker(guild_id, executor_id):
     g = action_trackers.setdefault(guild_id, {})
-    return g.setdefault(executor_id, {"ban": [], "kick": [], "channel_del": [], "role_del": []})
+    return g.setdefault(executor_id, {
+        "ban": [],
+        "kick": [],
+        "channel_del": [],
+        "role_del": [],
+        "role_add_member": [],
+        "role_remove_member": []
+    })
 
 async def generate_basic_nuke_report(guild, executor_id, snapshot):
     """
