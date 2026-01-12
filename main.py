@@ -387,6 +387,55 @@ action_trackers = {}
 #   "role_remove_member":[]
 # }}}
 
+@bot.event
+async def on_member_update(before, after):
+    try:
+        if before.roles == after.roles:
+            return
+
+        guild = after.guild
+
+        async for entry in guild.audit_logs(
+            limit=1,
+            action=discord.AuditLogAction.member_role_update
+        ):
+            if entry.target.id != after.id:
+                return
+
+            executor = entry.user
+
+            # Ignore owner
+            if executor.id == OWNER_ID:
+                return
+
+            # Ignore whitelist
+            if is_whitelisted(guild.id, executor.id):
+                return
+
+            now = ts()
+            tracker = ensure_action_tracker(guild.id, executor.id)
+
+            # Rôle ajouté
+            if len(after.roles) > len(before.roles):
+                tracker["role_add_member"].append(now)
+                await send_log(
+                    guild,
+                    f"🎭 Rôle AJOUTÉ abusif: {executor} → {after}"
+                )
+
+            # Rôle retiré
+            if len(after.roles) < len(before.roles):
+                tracker["role_remove_member"].append(now)
+                await send_log(
+                    guild,
+                    f"🎭 Rôle RETIRÉ abusif: {executor} → {after}"
+                )
+
+            await check_and_handle_nuke(guild, executor.id)
+            break
+
+    except Exception:
+        traceback.print_exc()
 
 def ensure_action_tracker(guild_id, executor_id):
     g = action_trackers.setdefault(guild_id, {})
